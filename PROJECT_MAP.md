@@ -183,7 +183,7 @@ This project follows the **Clean Development Protocol** (`/sessions/sweet-amazin
 
 CellarMate-specific rules:
 
-1. **Local test before every push** -- open index.html in a browser locally and confirm no console errors before committing to GitHub. Never push untested code to trigger a Vercel deploy.
+1. **Full dev cycle: local -> GitHub -> Vercel -> back to local** -- (a) make change locally, (b) open index.html in browser and confirm no console errors, (c) only then commit + push to GitHub, (d) verify the Vercel deploy works, (e) return to local for the next change. Never push untested code. Vercel is for confirming working code, not for debugging.
 2. **Never re-declare a `const` from Script 4** inside Script 5 — instant fatal error.
 3. **After any JSX source edit**, re-transpile with `jsx_transform.py`, then validate with `check-build.py`.
 4. **Never add CDN URLs** from non-cdnjs sources.
