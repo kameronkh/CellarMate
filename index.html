@@ -278,7 +278,7 @@ const makeAlerts = (topDate, so2Date, malicDate) => ({
 const CELLAR_RACKS = ["EBS 1","EBS 2","EBS 3","EBS 4","EBS 5","EBS 6","EBS 7","EBS 8","EBS 9","EBS 10"];
 const SLOTS = ["A","B","C"];
 
-const SCREENS = { dash:"dash", log:"log", lots:"lots", detail:"detail", tools:"tools", alerts:"alerts", map:"map", transfer:"transfer", settings:"settings", report:"report", blocks:"blocks" };
+const SCREENS = { dash:"dash", log:"log", lots:"lots", detail:"detail", tools:"tools", alerts:"alerts", map:"map", transfer:"transfer", settings:"settings", report:"report", blocks:"blocks", superAdmin:"superAdmin" };
 
 const ROLES = {
   owner: { label:"Winemaker / Owner", level:4 },
@@ -488,6 +488,57 @@ const blockRecommendations = (block) => {
   }
   return recs;
 };
+
+// ── LocalStorage Auth Helpers ──────────────────────────────────────────
+const AUTH_ACCOUNTS_KEY = 'cellarmate_auth_accounts';
+const AUTH_SESSION_KEY  = 'cellarmate_auth_session';
+const WINERIES_KEY      = 'cellarmate_wineries';
+
+function simpleHash(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
+  return (h >>> 0).toString(16);
+}
+
+function initAuthAccounts() {
+  let accounts = [];
+  try { accounts = JSON.parse(localStorage.getItem(AUTH_ACCOUNTS_KEY) || '[]'); } catch(e) {}
+  if (!accounts.length) {
+    accounts = [
+      { id:'sa1', email:'admin@cellarmate.app', passHash:simpleHash('admin'),
+        role:'super_admin', name:'CellarMate Admin', wineryId:null, userId:null },
+      { id:'wu1', email:'kameron@tystrya.com',  passHash:simpleHash('tystrya'),
+        role:'winery_user', name:'Kameron', wineryId:1, userId:1 }
+    ];
+    localStorage.setItem(AUTH_ACCOUNTS_KEY, JSON.stringify(accounts));
+  }
+  return accounts;
+}
+
+function loadAuthSession() {
+  try { return JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null'); } catch(e) { return null; }
+}
+
+function saveAuthSession(session) {
+  localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+}
+
+function clearAuthSession() {
+  localStorage.removeItem(AUTH_SESSION_KEY);
+}
+
+function loadPersistedWineries() {
+  try {
+    const raw = localStorage.getItem(WINERIES_KEY);
+    if (raw) { const w = JSON.parse(raw); if (w && w.length) return w; }
+  } catch(e) {}
+  return null;
+}
+
+function saveWineries(w) {
+  try { localStorage.setItem(WINERIES_KEY, JSON.stringify(w)); } catch(e) {}
+}
+
 </script>
 
 
@@ -496,7 +547,7 @@ const blockRecommendations = (block) => {
 
 
 <script>
-const { useState, useMemo, useRef } = React;
+const { useState, useMemo, useRef, useEffect } = React;
 
 /* ── pH TRACKING TAB ── */
 const PHTrackingTab = ({lot}) => {
@@ -1398,12 +1449,162 @@ const SettingsScreen = ({activeWinery, setWineries, lots, setLots, wineries}) =>
 
 /* ══════════════════════════════════
    MAIN APP
-══════════════════════════════════ */
+══════════════════════════════════ 
+/* ── LOGIN SCREEN ───────────────────────────────────────────────────── */
+function LoginScreen({ accounts, onLogin }) {
+  const [email, setEmail] = useState('');
+  const [pass, setPass]   = useState('');
+  const [error, setError] = useState('');
+  const iStyle = {width:'100%',background:C.bg,border:`1px solid ${C.cardBorder}`,color:C.text,borderRadius:8,padding:'11px 12px',fontSize:15,outline:'none'};
+  const lStyle = {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:'uppercase',display:'block',marginBottom:8};
+  function submit(e) {
+    e.preventDefault();
+    const acct = accounts.find(a => a.email.toLowerCase() === email.trim().toLowerCase());
+    if (!acct || acct.passHash !== simpleHash(pass)) { setError('Invalid email or password.'); return; }
+    onLogin(acct);
+  }
+  return React.createElement('div', {style:{position:'fixed',inset:0,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}},
+    React.createElement('div', {style:{maxWidth:400,width:'100%'}},
+      React.createElement('div', {style:{textAlign:'center',marginBottom:32}},
+        React.createElement('div', {style:{fontSize:52,marginBottom:10}}, '\uD83C\uDF77'),
+        React.createElement('div', {style:{fontSize:28,fontWeight:900,color:C.text}}, 'CellarMate'),
+        React.createElement('div', {style:{fontSize:13,color:C.textMuted,marginTop:6}}, 'Tystrya Estate · Winery Management')
+      ),
+      React.createElement('form', {onSubmit:submit, style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:'24px'}},
+        React.createElement('div', {style:{marginBottom:16}},
+          React.createElement('label', {style:lStyle}, 'Email'),
+          React.createElement('input', {type:'email',value:email,onChange:e=>setEmail(e.target.value),placeholder:'your@email.com',autoComplete:'email',style:iStyle})
+        ),
+        React.createElement('div', {style:{marginBottom:20}},
+          React.createElement('label', {style:lStyle}, 'Password'),
+          React.createElement('input', {type:'password',value:pass,onChange:e=>setPass(e.target.value),placeholder:'••••••••',autoComplete:'current-password',style:iStyle})
+        ),
+        error ? React.createElement('div', {style:{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:8,padding:'10px 12px',color:C.red,fontSize:13,marginBottom:16,fontWeight:600}}, error) : null,
+        React.createElement('button', {type:'submit',style:{width:'100%',background:C.accent,border:'none',borderRadius:10,padding:'13px',color:'#fff',fontSize:15,fontWeight:800,cursor:'pointer'}}, 'Sign In')
+      ),
+      React.createElement('div', {style:{textAlign:'center',marginTop:14,fontSize:12,color:C.textDim}},
+        'Demo: kameron@tystrya.com / tystrya  ·  admin@cellarmate.app / admin'
+      )
+    )
+  );
+}
+
+/* ── SUPER ADMIN SCREEN ─────────────────────────────────────────────── */
+function SuperAdminScreen({ wineries, accounts, setAccounts, onViewWinery, onLogout, authSession }) {
+  const [tab, setTab]           = useState('wineries');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPass, setNewPass]   = useState('');
+  const [newName, setNewName]   = useState('');
+  const [newWId, setNewWId]     = useState('');
+  const [addErr, setAddErr]     = useState('');
+  const [addOk, setAddOk]       = useState('');
+
+  function addAccount() {
+    if (!newEmail || !newPass || !newName) { setAddErr('All fields required.'); return; }
+    if (accounts.find(a => a.email.toLowerCase() === newEmail.toLowerCase())) { setAddErr('Email already exists.'); return; }
+    const acct = { id:'wu'+Date.now(), email:newEmail.trim(), passHash:simpleHash(newPass),
+      role:'winery_user', name:newName.trim(), wineryId:newWId?Number(newWId):null, userId:null };
+    const next = [...accounts, acct];
+    setAccounts(next);
+    localStorage.setItem(AUTH_ACCOUNTS_KEY, JSON.stringify(next));
+    setNewEmail(''); setNewPass(''); setNewName(''); setNewWId('');
+    setAddErr(''); setAddOk('Account created!');
+    setTimeout(() => setAddOk(''), 3000);
+  }
+
+  const iStyle = {width:'100%',background:C.bg,border:`1px solid ${C.cardBorder}`,color:C.text,borderRadius:8,padding:'10px 12px',fontSize:14,outline:'none'};
+  const lStyle = {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:6};
+  const tabBtn = (lbl, t) => React.createElement('button', {key:t,onClick:()=>setTab(t),style:{background:'transparent',border:'none',padding:'9px 16px',fontSize:13,fontWeight:700,color:tab===t?C.accent:C.textMuted,cursor:'pointer',borderBottom:`2px solid ${tab===t?C.accent:'transparent'}`,marginBottom:-1}}, lbl);
+
+  return React.createElement('div', {style:{minHeight:'100vh',background:C.bg,color:C.text}},
+    React.createElement('div', {style:{background:C.card,borderBottom:`1px solid ${C.cardBorder}`,padding:'0 20px',display:'flex',alignItems:'center',justifyContent:'space-between',height:56,position:'sticky',top:0,zIndex:100}},
+      React.createElement('div', {style:{display:'flex',alignItems:'center',gap:10}},
+        React.createElement('span', {style:{fontSize:20}}, '\uD83D\uDD11'),
+        React.createElement('span', {style:{fontSize:16,fontWeight:800,color:C.text}}, 'Super Admin'),
+        React.createElement('span', {style:{fontSize:12,color:C.textDim,marginLeft:4}}, '— CellarMate')
+      ),
+      React.createElement('div', {style:{display:'flex',alignItems:'center',gap:10}},
+        React.createElement('span', {style:{fontSize:11,color:C.textDim}}, authSession.email),
+        React.createElement('button', {onClick:onLogout,style:{background:'transparent',border:`1px solid ${C.cardBorder}`,borderRadius:8,padding:'5px 10px',color:C.textMuted,fontSize:12,fontWeight:600,cursor:'pointer'}}, 'Logout')
+      )
+    ),
+    React.createElement('div', {style:{display:'flex',gap:0,padding:'0 20px',borderBottom:`1px solid ${C.cardBorder}`,background:C.card}},
+      tabBtn('\uD83C\uDFE1 Wineries','wineries'), tabBtn('\uD83D\uDC65 Accounts','accounts')
+    ),
+    React.createElement('div', {style:{maxWidth:700,margin:'0 auto',padding:'24px 20px'}},
+      tab==='wineries' ? React.createElement(React.Fragment, null,
+        React.createElement('div', {style:{fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:'uppercase',marginBottom:14}}, wineries.length + ' Wineries'),
+        wineries.map(w => {
+          const wAccts = accounts.filter(a=>a.wineryId===w.id);
+          return React.createElement('div', {key:w.id,style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:'18px',marginBottom:12}},
+            React.createElement('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
+              React.createElement('div', null,
+                React.createElement('div', {style:{fontSize:16,fontWeight:800,color:C.text}}, w.name),
+                React.createElement('div', {style:{fontSize:12,color:C.textMuted,marginTop:2}}, w.region)
+              ),
+              React.createElement('button', {onClick:()=>onViewWinery(w.id),style:{background:C.accentDim,border:`1px solid ${C.accent}44`,borderRadius:10,padding:'7px 14px',color:C.accentLight,fontSize:13,fontWeight:700,cursor:'pointer'}}, 'View →')
+            ),
+            React.createElement('div', {style:{display:'flex',gap:16,fontSize:12,color:C.textDim,flexWrap:'wrap'}},
+              React.createElement('span', null, w.users.length+' staff'),
+              React.createElement('span', null, w.lots.length+' lots'),
+              React.createElement('span', null, w.lots.reduce((s,l)=>s+l.gallons,0).toLocaleString()+' gal'),
+              React.createElement('span', null, wAccts.length+' login'+(wAccts.length!==1?'s':''))
+            )
+          );
+        })
+      ) : React.createElement(React.Fragment, null,
+        React.createElement('div', {style:{fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:'uppercase',marginBottom:14}}, accounts.length+' Accounts'),
+        accounts.map(a => {
+          const w = wineries.find(w=>w.id===a.wineryId);
+          return React.createElement('div', {key:a.id,style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:'14px 16px',marginBottom:8,display:'flex',alignItems:'center',justifyContent:'space-between'}},
+            React.createElement('div', null,
+              React.createElement('div', {style:{fontSize:14,fontWeight:700,color:C.text}}, a.name),
+              React.createElement('div', {style:{fontSize:12,color:C.textMuted,marginTop:2}}, a.email),
+              React.createElement('div', {style:{fontSize:11,color:a.role==='super_admin'?C.accent:C.textDim,marginTop:2}},
+                a.role==='super_admin' ? '\uD83D\uDD11 Super Admin' : w ? '\uD83C\uDFE1 '+w.name : 'No winery assigned')
+            ),
+            React.createElement('div', {style:{background:a.role==='super_admin'?C.accentDim:C.card,border:`1px solid ${a.role==='super_admin'?C.accent:C.cardBorder}`,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700,color:a.role==='super_admin'?C.accent:C.textDim}},
+              a.role==='super_admin'?'Admin':'User')
+          );
+        }),
+        React.createElement('div', {style:{background:C.card,border:`1px dashed ${C.cardBorder}`,borderRadius:16,padding:'20px',marginTop:20}},
+          React.createElement('div', {style:{fontSize:14,fontWeight:800,color:C.text,marginBottom:16}}, '+ Add Account'),
+          React.createElement('div', {style:{marginBottom:12}},
+            React.createElement('label', {style:lStyle}, 'Name'),
+            React.createElement('input', {value:newName,onChange:e=>setNewName(e.target.value),placeholder:'e.g. Sarah',style:iStyle})
+          ),
+          React.createElement('div', {style:{marginBottom:12}},
+            React.createElement('label', {style:lStyle}, 'Email'),
+            React.createElement('input', {type:'email',value:newEmail,onChange:e=>setNewEmail(e.target.value),placeholder:'sarah@winery.com',style:iStyle})
+          ),
+          React.createElement('div', {style:{marginBottom:12}},
+            React.createElement('label', {style:lStyle}, 'Password'),
+            React.createElement('input', {type:'password',value:newPass,onChange:e=>setNewPass(e.target.value),style:iStyle})
+          ),
+          React.createElement('div', {style:{marginBottom:16}},
+            React.createElement('label', {style:lStyle}, 'Winery'),
+            React.createElement('select', {value:newWId,onChange:e=>setNewWId(e.target.value),style:{...iStyle,color:newWId?C.text:C.textDim}},
+              React.createElement('option', {value:''}, 'Select winery...'),
+              wineries.map(w=>React.createElement('option', {key:w.id,value:w.id}, w.name))
+            )
+          ),
+          addErr ? React.createElement('div', {style:{color:C.red,fontSize:12,marginBottom:10,fontWeight:600}}, addErr) : null,
+          addOk  ? React.createElement('div', {style:{color:C.green,fontSize:12,marginBottom:10,fontWeight:600}}, addOk) : null,
+          React.createElement('button', {onClick:addAccount,style:{background:C.accent,border:'none',borderRadius:10,padding:'11px 20px',color:'#fff',fontSize:14,fontWeight:800,cursor:'pointer'}}, 'Create Account')
+        )
+      )
+    )
+  );
+}
+
+*/
 function App() {
   const [screen,setScreen] = useState(SCREENS.dash);
   const [prevScreen,setPrev]= useState(null);
   const [selectedLot,setLot]= useState(null);
-  const [wineries,setWineries]     = useState(INITIAL_WINERIES);
+  const [authSession, setAuthSession] = useState(() => loadAuthSession());
+  const [authAccounts, setAuthAccounts] = useState(() => initAuthAccounts());
+  const [wineries,setWineries]     = useState(() => loadPersistedWineries() || INITIAL_WINERIES);
   const [activeWineryId,setActiveWineryId] = useState(null);
   const [activeUserId,setActiveUserId]   = useState(null);
   const [detailTab,setDTab]  = useState("overview");
@@ -1438,6 +1639,44 @@ function App() {
   };
   const setActiveUser = (u) => setActiveUserId(u?.id||null);
   const settings = activeWinery?.settings || DEFAULT_SETTINGS;
+  // ── Auth ──────────────────────────────────────────────────────────────
+  useEffect(() => { saveWineries(wineries); }, [wineries]);
+
+  function handleLogin(acct) {
+    const session = { ...acct, loginTime: new Date().toISOString() };
+    saveAuthSession(session);
+    setAuthSession(session);
+    if (acct.role === 'winery_user' && acct.wineryId) {
+      setActiveWineryId(acct.wineryId);
+    }
+  }
+
+  function handleLogout() {
+    clearAuthSession();
+    setAuthSession(null);
+    setActiveWineryId(null);
+    setActiveUserId(null);
+    setScreen(SCREENS.dash);
+  }
+
+  function handleViewWinery(wineryId) {
+    saveAuthSession({ ...authSession, _adminView: true });
+    setAuthSession(prev => ({ ...prev, _adminView: true }));
+    setActiveWineryId(wineryId);
+  }
+
+  // Early returns based on auth ──────────────────────────────────────────
+  if (!authSession) {
+    return React.createElement(LoginScreen, { accounts: authAccounts, onLogin: handleLogin });
+  }
+  if (authSession.role === 'super_admin' && !authSession._adminView) {
+    return React.createElement(SuperAdminScreen, {
+      wineries, accounts: authAccounts, setAccounts: setAuthAccounts,
+      onViewWinery: handleViewWinery, onLogout: handleLogout, authSession
+    });
+  }
+
+
 
   const alerts   = lots.filter(l=>l.alert);
   const aging    = lots.filter(l=>l.status==="aging");
