@@ -20,7 +20,7 @@ A standalone winery management app for **Tystrya Estate** (Ribbon Ridge, OR). Tr
 | **Vercel** | `cellarmate` project | Live at `https://cellar-tracker.vercel.app` |
 | **Supabase** | `CellarMate` project | Project ID: `lugqfeqocwltgvibizca` · Region: `us-west-2` |
 
-> **Note:** The Vercel live URL still reads `cellar-tracker.vercel.app` (legacy alias preserved after project rename). The page title correctly reads \"CellarMate — Tystrya Estate\".
+> **Note:** The Vercel live URL still reads `cellar-tracker.vercel.app` (legacy alias preserved after project rename). The page title correctly reads "CellarMate — Tystrya Estate".
 
 ---
 
@@ -61,7 +61,7 @@ The static HTML app does **not yet call Supabase** — connecting it is the next
 
 ```
 index.html               ← The entire app (single file, ~320KB) — deployed to Vercel
-check-build.py            ← Automated build validator (26 checks)
+check-build.py           ← Automated build validator (26 checks)
 PROJECT_MAP.md           ← This file
 ```
 
@@ -73,8 +73,8 @@ The single HTML file contains five `<script>` blocks that execute in order:
 
 | # | Type | Size | Purpose |
 |---|---|---|---|
-| 1 | `<script src=\"...react.development.js\" crossorigin>` | ~0.1KB tag | React 18 from cdnjs |
-| 2 | `<script src=\"...react-dom.development.js\" crossorigin>` | ~0.1KB tag | ReactDOM 18 from cdnjs |
+| 1 | `<script src="...react.development.js" crossorigin>` | ~0.1KB tag | React 18 from cdnjs |
+| 2 | `<script src="...react-dom.development.js" crossorigin>` | ~0.1KB tag | ReactDOM 18 from cdnjs |
 | 3 | `<script>` (IIFE) | ~1.7KB | Error overlay + loading spinner setup; registers `window.onerror` |
 | 4 | `<script>` (plain JS) | ~136KB | Seed data + pure-JS utilities (no JSX) |
 | 5 | `<script>` (pre-transpiled) | ~173KB | All React components, compiled to `React.createElement` |
@@ -89,7 +89,7 @@ The single HTML file contains five `<script>` blocks that execute in order:
 |---|---|---|
 | `initialLots` | Array | 179 seed lots — the starting wine/barrel dataset |
 | `C` | Object | Color palette (`C.accent`, `C.green`, `C.red`, etc.) |
-| `CELLARRACKS` | Array | Rack name list |
+| `CELLAR_RACKS` | Array | Rack name list |
 | `SLOTS` | Array | Barrel slot identifiers |
 | `SCREENS` | Object | Screen name constants |
 | `ROLES` | Object | Role definitions with permission levels |
@@ -111,11 +111,34 @@ The single HTML file contains five `<script>` blocks that execute in order:
 
 ---
 
+## Auth Flow (localStorage)
+
+Auth is gate-kept in the App component via early returns before any existing screen renders.
+
+| Component | Role | Behavior |
+|---|---|---|
+| `LoginScreen` | All | Email + password form; `simpleHash` (djb2 XOR) validates against stored `passHash` |
+| `SuperAdminScreen` | `super_admin` only | Wineries tab (stats + "View →" impersonate) · Accounts tab (list + Add Account form) |
+| (existing app) | `winery_user` | Dropped straight into their assigned winery after login |
+
+**localStorage keys:**
+- `cellarmate_auth_accounts` — array of account objects (email, passHash, role, wineryId)
+- `cellarmate_auth_session` — current session object (cleared on logout)
+- `cellarmate_wineries` — persisted winery + lot data (survives page reload)
+
+**Demo credentials:** `kameron@tystrya.com` / `tystrya` · `admin@cellarmate.app` / `admin`
+
+**Next step:** Replace simpleHash + localStorage with Supabase Auth once the localStorage flow is validated.
+
+---
+
 ## Screen Components
 
 | Screen | SCREENS key | Access Level |
 |---|---|---|
-| Dashboard | `dash` | All |
+| Login | *(early return, no key)* | Unauthenticated visitors |
+| Super Admin | `superAdmin` | `super_admin` role only |
+| Dashboard | `dash` | All authenticated winery users |
 | Lot List | `lots` | All |
 | Lot Detail | `detail` | All |
 | Alerts | `alerts` | All |
@@ -182,7 +205,8 @@ CellarMate-specific rules:
 
 ## Open Items
 
-- [ ] **Supabase integration** — connect `index.html` to the CellarMate Supabase project (`lugqfeqocwltgvibizca`); replace in-memory state with real persistence
+- [ ] **Supabase auth** — replace localStorage `simpleHash` auth with Supabase Auth; wire `cellarmate_auth_accounts` → `profiles` table
+- [ ] **Supabase data** — connect winery/lot state to Supabase (`lots`, `lot_logs`, etc.); retire `cellarmate_wineries` localStorage key
 - [ ] **Vercel URL** — optionally add `cellarmate.vercel.app` as a domain alias and retire `cellar-tracker.vercel.app`
 - [ ] **Production build** — consider switching to minified React for production
 - [ ] **`jsx_transform.py`** — lives outside the repo; consider committing it to `CellarMate` for reproducible builds
