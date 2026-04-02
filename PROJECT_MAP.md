@@ -170,10 +170,10 @@ Key permissions: `editSettings` (3+), `addLot` (2+), `deleteLot` (3+), `logReadi
 This app is designed to run in a browser from Vercel, but was originally built for Safari `file://`. These constraints still apply:
 
 1. **CDN only from `cdnjs.cloudflare.com`** — `jsdelivr.net` and `unpkg.com` are blocked in Safari file:// context.
-2. **No runtime transpiler** — JSX must be pre-transpiled at build time.
-3. **No `const` redeclaration** — fatal `SyntaxError` if the same name appears in both Script 4 and Script 5.
-4. **No modules** — everything runs in global scope.
-5. **`crossorigin="anonymous"`** — required on CDN script tags for proper error reporting via `window.onerror`.
+3. **No runtime transpiler** — JSX must be pre-transpiled at build time.
+4. **No `const` redeclaration** — fatal `SyntaxError` if the same name appears in both Script 4 and Script 5.
+5. **No modules** — everything runs in global scope.
+6. **`crossorigin="anonymous"`** — required on CDN script tags for proper error reporting via `window.onerror`.
 
 ---
 
@@ -183,12 +183,13 @@ This project follows the **Clean Development Protocol** (`/sessions/sweet-amazin
 
 CellarMate-specific rules:
 
-1. **Never re-declare a `const` from Script 4** inside Script 5 — instant fatal error.
-2. **After any JSX source edit**, re-transpile with `jsx_transform.py`, then validate with `check-build.py`.
-3. **Never add CDN URLs** from non-cdnjs sources.
-4. **Test in Safari** — it is the strictest environment.
-5. **One change at a time** — confirm each step works before stacking.
-6. **This repo is CellarMate only** — do not reference, import, or link to CrewMate code or infrastructure.
+1. **Local test before every push** -- open index.html in a browser locally and confirm no console errors before committing to GitHub. Never push untested code to trigger a Vercel deploy.
+2. **Never re-declare a `const` from Script 4** inside Script 5 — instant fatal error.
+3. **After any JSX source edit**, re-transpile with `jsx_transform.py`, then validate with `check-build.py`.
+4. **Never add CDN URLs** from non-cdnjs sources.
+5. **Test in Safari** — it is the strictest environment.
+6. **One change at a time** — confirm each step works before stacking.
+7. **This repo is CellarMate only** — do not reference, import, or link to CrewMate code or infrastructure.
 
 ---
 
