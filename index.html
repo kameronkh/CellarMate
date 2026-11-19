@@ -6,6 +6,7 @@
   <title>CellarMate — Tystrya Estate</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
     <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0f1117; font-family: 'Inter', system-ui, sans-serif; }
@@ -676,6 +677,11 @@ const blockRecommendations = (block) => {
 const AUTH_ACCOUNTS_KEY = 'cellarmate_auth_accounts';
 const AUTH_SESSION_KEY  = 'cellarmate_auth_session';
 const WINERIES_KEY      = 'cellarmate_wineries';
+
+// ── Supabase Client ──────────────────────────────────────────────────────
+const SUPA_URL = 'https://lugqfeqocwltgvibizca.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1Z3FmZXFvY3dsdGd2aWJpemNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNDY1MDksImV4cCI6MjA5MDYyMjUwOX0.smzsZojiIu36d5TSvI5bPnNTJtHD0kBIFwbrdPmgCh0';
+const supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
 function simpleHash(str) {
   let h = 5381;
@@ -3448,17 +3454,18 @@ const SettingsScreen = ({activeWinery, setWineries, lots, setLots, wineries}) =>
    MAIN APP
 ══════════════════════════════════ 
 /* ── LOGIN SCREEN ───────────────────────────────────────────────────── */
-function LoginScreen({ accounts, onLogin }) {
+function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState('');
   const [pass, setPass]   = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const iStyle = {width:'100%',background:C.bg,border:`1px solid ${C.cardBorder}`,color:C.text,borderRadius:8,padding:'11px 12px',fontSize:15,outline:'none'};
   const lStyle = {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:'uppercase',display:'block',marginBottom:8};
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    const acct = accounts.find(a => a.email.toLowerCase() === email.trim().toLowerCase());
-    if (!acct || acct.passHash !== simpleHash(pass)) { setError('Invalid email or password.'); return; }
-    onLogin(acct);
+    setError(''); setLoading(true);
+    const { error: authErr } = await supa.auth.signInWithPassword({ email: email.trim(), password: pass });
+    if (authErr) { setError(authErr.message); setLoading(false); }
   }
   return React.createElement('div', {style:{position:'fixed',inset:0,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}},
     React.createElement('div', {style:{maxWidth:400,width:'100%'}},
@@ -3477,7 +3484,7 @@ function LoginScreen({ accounts, onLogin }) {
           React.createElement('input', {type:'password',value:pass,onChange:e=>setPass(e.target.value),placeholder:'••••••••',autoComplete:'current-password',style:iStyle})
         ),
         error ? React.createElement('div', {style:{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:8,padding:'10px 12px',color:C.red,fontSize:13,marginBottom:16,fontWeight:600}}, error) : null,
-        React.createElement('button', {type:'submit',style:{width:'100%',background:C.accent,border:'none',borderRadius:10,padding:'13px',color:'#fff',fontSize:15,fontWeight:800,cursor:'pointer'}}, 'Sign In')
+        React.createElement('button', {type:'submit',disabled:loading,style:{width:'100%',background:loading?C.cardBorder:C.accent,border:'none',borderRadius:10,padding:'13px',color:'#fff',fontSize:15,fontWeight:800,cursor:loading?'not-allowed':'pointer'}}, loading?'Signing in…':'Sign In')
       ),
       React.createElement('div', {style:{textAlign:'center',marginTop:14,fontSize:12,color:C.textDim}},
         'Demo: kameron@tystrya.com / tystrya  ·  admin@cellarmate.app / admin'
@@ -3598,8 +3605,8 @@ function App() {
   const [screen,setScreen] = useState(SCREENS.dash);
   const [prevScreen,setPrev]= useState(null);
   const [selectedLot,setLot]= useState(null);
-  const [authSession, setAuthSession] = useState(() => loadAuthSession());
-  const [authAccounts, setAuthAccounts] = useState(() => initAuthAccounts());
+  const [authSession, setAuthSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [wineries,setWineries]     = useState(() => loadPersistedWineries() || INITIAL_WINERIES);
   const [activeWineryId,setActiveWineryId] = useState(null);
   const [activeUserId,setActiveUserId]   = useState(null);
@@ -3638,17 +3645,36 @@ function App() {
   // ── Auth ──────────────────────────────────────────────────────────────
   useEffect(() => { saveWineries(wineries); }, [wineries]);
 
-  function handleLogin(acct) {
-    const session = { ...acct, loginTime: new Date().toISOString() };
-    saveAuthSession(session);
-    setAuthSession(session);
-    if (acct.role === 'winery_user' && acct.wineryId) {
-      setActiveWineryId(acct.wineryId);
+  useEffect(() => {
+    async function initAuth() {
+      const { data: { session } } = await supa.auth.getSession();
+      if (session) {
+        const profile = await getSupaProfile(session.user.id);
+        const sess = { email: session.user.email, id: session.user.id, ...(profile||{}),
+          role: (profile?.role_key)||'owner', name: profile?.full_name||session.user.email };
+        setAuthSession(sess);
+        if (!activeWineryId) setActiveWineryId(1);
+      }
+      setAuthLoading(false);
     }
-  }
+    initAuth();
+    const { data: { subscription } } = supa.auth.onAuthStateChange(async (_event, session) => {
+      if (session) {
+        const profile = await getSupaProfile(session.user.id);
+        const sess = { email: session.user.email, id: session.user.id, ...(profile||{}),
+          role: (profile?.role_key)||'owner', name: profile?.full_name||session.user.email };
+        setAuthSession(sess);
+        if (!activeWineryId) setActiveWineryId(1);
+      } else {
+        setAuthSession(null);
+      }
+      setAuthLoading(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
-  function handleLogout() {
-    clearAuthSession();
+  async function handleLogout() {
+    await supa.auth.signOut();
     setAuthSession(null);
     setActiveWineryId(null);
     setActiveUserId(null);
@@ -3656,18 +3682,23 @@ function App() {
   }
 
   function handleViewWinery(wineryId) {
-    saveAuthSession({ ...authSession, _adminView: true });
     setAuthSession(prev => ({ ...prev, _adminView: true }));
     setActiveWineryId(wineryId);
   }
 
   // Early returns based on auth ──────────────────────────────────────────
+  if (authLoading) {
+    return React.createElement('div',{style:{position:'fixed',inset:0,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}},
+      React.createElement('div',{style:{fontSize:52}},'🍷'),
+      React.createElement('div',{style:{color:C.textDim,fontSize:14,fontWeight:600}},'Loading CellarMate…')
+    );
+  }
   if (!authSession) {
-    return React.createElement(LoginScreen, { accounts: authAccounts, onLogin: handleLogin });
+    return React.createElement(LoginScreen, { onLogin: () => {} });
   }
   if (authSession.role === 'super_admin' && !authSession._adminView) {
     return React.createElement(SuperAdminScreen, {
-      wineries, accounts: authAccounts, setAccounts: setAuthAccounts,
+      wineries, accounts: [], setAccounts: ()=>{},
       onViewWinery: handleViewWinery, onLogout: handleLogout, authSession
     });
   }
