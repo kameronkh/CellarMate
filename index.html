@@ -19,7 +19,7 @@
 <body>
 <div id="loading-indicator" style="position:fixed;top:0;left:0;width:100%;height:100%;background:#0f1117;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;font-family:monospace;">
   <div style="color:#8b5cf6;font-size:22px;font-weight:700;margin-bottom:12px;">⏳ Loading CellarMate…</div>
-  <div style="color:#64748b;font-size:13px;">Babel is transpiling the app (may take 5–10 seconds)</div>
+  <div style="color:#64748b;font-size:13px;">Loading CellarMate… (may take 5–10 seconds)</div>
 </div>
 <div id="error-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#0f1117;z-index:10000;overflow:auto;padding:30px;box-sizing:border-box;font-family:monospace;">
   <div style="color:#ef4444;font-size:18px;font-weight:700;margin-bottom:16px;">❌ JavaScript Error — App failed to start</div>
@@ -224,7 +224,7 @@ const initialLots = [
   {id:220,name:"Barrel 110",type:"barrel",gallons:60,vintage:2025,vineyard:"Tystrya Estate",varietal:"Pinot Noir",clone:null,block:null,fermentor:null,location:"zNOT USED",status:"aging",alert:null,health:[],fillDate:null,harvestDate:null,yeastStrain:null,mlfComplete:null,vessel:{material:"Neutral Oak",cooperage:null,forest:null,toast:null,fill:"neutral",size:"228L",bung:"Silicon"},additions:[],alerts:{topping:{lastDate:"2025-11-01",intervalDays:14},so2Check:{lastDate:"2025-11-15",intervalDays:45},malicCheck:{lastDate:"2025-11-01",intervalDays:30}},logs:[]},
   {id:221,name:"Barrel 111",type:"barrel",gallons:60,vintage:2025,vineyard:"Tystrya Estate",varietal:"Pinot Noir",clone:null,block:null,fermentor:null,location:"zNOT USED",status:"aging",alert:null,health:[],fillDate:null,harvestDate:null,yeastStrain:null,mlfComplete:null,vessel:{material:"Neutral Oak",cooperage:null,forest:null,toast:null,fill:"neutral",size:"228L",bung:"Silicon"},additions:[],alerts:{topping:{lastDate:"2025-11-01",intervalDays:14},so2Check:{lastDate:"2025-11-15",intervalDays:45},malicCheck:{lastDate:"2025-11-01",intervalDays:30}},logs:[]},
   {id:222,name:"Barrel 158",type:"barrel",gallons:60,vintage:2025,vineyard:"Tystrya Estate",varietal:"Pinot Noir",clone:null,block:null,fermentor:null,location:"zNOT USED",status:"aging",alert:null,health:[],fillDate:null,harvestDate:null,yeastStrain:null,mlfComplete:null,vessel:{material:"Neutral Oak",cooperage:null,forest:null,toast:null,fill:"neutral",size:"228L",bung:"Silicon"},additions:[],alerts:{topping:{lastDate:"2025-11-01",intervalDays:14},so2Check:{lastDate:"2025-11-15",intervalDays:45},malicCheck:{lastDate:"2025-11-01",intervalDays:30}},logs:[]},
-  {id:223,name:"Barrel 113",type:"barrel",gallons:60,vintage:2025,vineyard:"Tystrya Estate",varietal:"Pinot Noir",clone:null,block:null,fermentor:null,location:null,status:"aging",alert:"so2",health:[],fillDate:null,harvestDate:null,yeastStrain:null,mlfComplete:null,vessel:{material:"Neutral Oak",cooperage:null,forest:null,toast:null,fill:"neutral",size:"228L",bung:"Silicon"},additions:[],alerts:{topping:{lastDate:"2025-11-01",intervalDays:14},so2Check:{lastDate:"2025-11-15",intervalDays:45},malicCheck:{lastDate:"2025-11-01",intervalDays:30}},logs:[]},
+  {id:223,name:"Barrel 113",type:"barrel",gallons:60,vintage:2025,vineyard:"Tystrya Estate",varietal:"Pinot Noir",clone:null,block:null,fermentor:null,location:"EBS 10A",status:"aging",alert:"so2",health:[],fillDate:null,harvestDate:null,yeastStrain:null,mlfComplete:null,vessel:{material:"Neutral Oak",cooperage:null,forest:null,toast:null,fill:"neutral",size:"228L",bung:"Silicon"},additions:[],alerts:{topping:{lastDate:"2025-11-01",intervalDays:14},so2Check:{lastDate:"2025-11-15",intervalDays:45},malicCheck:{lastDate:"2025-11-01",intervalDays:30}},logs:[]},
   {id:224,name:"Barrel 207",type:"barrel",gallons:60,vintage:2025,vineyard:"Tystrya Estate",varietal:"Pinot Noir",clone:null,block:null,fermentor:null,location:null,status:"aging",alert:null,health:[],fillDate:null,harvestDate:null,yeastStrain:null,mlfComplete:null,vessel:{material:"Neutral Oak",cooperage:null,forest:null,toast:null,fill:"neutral",size:"228L",bung:"Silicon"},additions:[],alerts:{topping:{lastDate:"2025-11-01",intervalDays:14},so2Check:{lastDate:"2025-11-15",intervalDays:45},malicCheck:{lastDate:"2025-11-01",intervalDays:30}},logs:[{date:"2025-12-10",brix:0.0,temp:57,ph:3.63,ta:null,malic:null,yan:null,so2Free:null,totalSo2:null,va:null,notes:""}]},
   {id:225,name:"Barrel 109",type:"barrel",gallons:60,vintage:2025,vineyard:"Tystrya Estate",varietal:"Pinot Noir",clone:null,block:null,fermentor:null,location:"EBS 5B",status:"aging",alert:null,health:[],fillDate:null,harvestDate:null,yeastStrain:null,mlfComplete:null,vessel:{material:"Neutral Oak",cooperage:null,forest:null,toast:null,fill:"neutral",size:"228L",bung:"Silicon"},additions:[],alerts:{topping:{lastDate:"2025-11-01",intervalDays:14},so2Check:{lastDate:"2025-11-15",intervalDays:45},malicCheck:{lastDate:"2025-11-01",intervalDays:30}},logs:[]},
   {id:226,name:"Barrel 22",type:"barrel",gallons:60,vintage:2025,vineyard:"Tystrya Estate",varietal:"Pinot Noir",clone:null,block:null,fermentor:null,location:"OBAS 6A",status:"aging",alert:null,health:[],fillDate:null,harvestDate:null,yeastStrain:null,mlfComplete:null,vessel:{material:"Neutral Oak",cooperage:null,forest:null,toast:null,fill:"neutral",size:"228L",bung:"Silicon"},additions:[],alerts:{topping:{lastDate:"2025-11-01",intervalDays:14},so2Check:{lastDate:"2025-11-15",intervalDays:45},malicCheck:{lastDate:"2025-11-01",intervalDays:30}},logs:[]},
@@ -742,45 +742,130 @@ const PHTrackingTab = ({lot}) => {
 };
 
 /* ── CELLAR MAP SCREEN ── */
-const MapScreen = ({lots}) => {
-  const [filterAlert, setFilterAlert] = useState(false);
-  
-  const grouped = {};
-  lots.filter(l=>l.location).forEach(lot=>{
-    const rack = lot.location.replace(/[ABC]$/,'').trim();
-    if(!grouped[rack]) grouped[rack]=[];
-    grouped[rack].push(lot);
+const MapScreen = ({lots, onSelect}) => {
+  const [filterVintage, setFilterVintage] = React.useState(0);
+  const [selectedLot, setSelectedLot] = React.useState(null);
+  const vintages = [...new Set(lots.map(l=>l.vintage))].filter(Boolean).sort();
+  const filtered = filterVintage ? lots.filter(l=>l.vintage===filterVintage) : lots;
+  const locMap = {};
+  filtered.filter(l=>l.location).forEach(lot=>{
+    if(!locMap[lot.location]) locMap[lot.location]=[];
+    locMap[lot.location].push(lot);
   });
-  
-  const alertLots = lots.filter(l=>l.alert);
-  const displayedGroups = filterAlert 
-    ? Object.fromEntries(Object.entries(grouped).filter(([,v])=>v.some(l=>l.alert)))
-    : grouped;
-  
-  const dotColor = (lot) => {
+  const lotColor = (lot) => {
+    if(!lot) return null;
     if(lot.alert==="va") return C.red;
-    if(lot.alert==="mlf") return C.accentLight;
     if(lot.alert==="so2") return C.yellow;
-    if(lot.status==="active") return C.green;
-    return C.teal;
+    if(lot.alert==="mlf") return C.accentLight;
+    if(lot.vintage===2026) return C.teal;
+    if(lot.vintage===2025) return C.blue;
+    if(lot.vintage===2024) return C.orange;
+    return C.green;
   };
-  
-  return (React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}, React.createElement("button", {onClick: ()=>setFilterAlert(false), style: {background:!filterAlert?C.accent:C.card,border:`1px solid ${!filterAlert?C.accent:C.cardBorder}`,borderRadius:8,padding:"6px 12px",color:!filterAlert?"#fff":C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}, "All Barrels (", lots.filter(l=>l.location).length, ")"), React.createElement("button", {onClick: ()=>setFilterAlert(true), style: {background:filterAlert?C.red:C.card,border:`1px solid ${filterAlert?C.red:C.cardBorder}`,borderRadius:8,padding:"6px 12px",color:filterAlert?"#fff":C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}, "⚠ Alerts Only (", alertLots.length, ")")), React.createElement("div", {style: {display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}, [...new Set(lots.filter(l=>l.location).map(l=>l.location.replace(/[ABC]$/,'').trim()))].sort().map(rack=>{
-        const rackLots = (grouped[rack]||[]);
-        const hasAlert = rackLots.some(l=>l.alert);
-        if(filterAlert && !hasAlert) return null;
-        return (
-          React.createElement("div", {key: rack, style: {background:C.card,border:`1px solid ${hasAlert?C.orange+"44":C.cardBorder}`,borderRadius:12,padding:12}}, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,marginBottom:8,letterSpacing:0.5}}, rack), React.createElement("div", {style: {display:"flex",flexWrap:"wrap",gap:6}}, ["A","B","C"].map(slot=>{
-                const slotLots = rackLots.filter(l=>l.location===`${rack}${slot}`);
-                if(slotLots.length===0) return React.createElement("div", {key: slot, style: {width:32,height:32,borderRadius:6,background:C.bg,border:`1px dashed ${C.cardBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:C.textDim}}, slot);
-                return slotLots.map(lot=>(
-                  React.createElement("div", {key: lot.id, title: `${lot.name} — ${lot.vineyard} ${lot.varietal}`, style: {width:32,height:32,borderRadius:6,background:dotColor(lot),border:`1px solid ${dotColor(lot)}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:800,color:"#fff",cursor:"pointer",position:"relative"}}, String(lot.name).replace('Barrel ','').replace('Fermentor ','F'), lot.alert&&React.createElement("span", {style: {position:"absolute",top:-4,right:-4,width:8,height:8,borderRadius:"50%",background:C.red,border:`1px solid ${C.bg}`}}))
-                ));
-              })))
-        );
-      })), React.createElement("div", {style: {marginTop:16,display:"flex",gap:12,flexWrap:"wrap"}}, [{c:C.teal,l:"Aging"},{c:C.green,l:"Active"},{c:C.yellow,l:"SO₂ Alert"},{c:C.accentLight,l:"MLF Slow"},{c:C.red,l:"VA Risk"}].map(({c,l})=>(
-        React.createElement("div", {key: l, style: {display:"flex",alignItems:"center",gap:5}}, React.createElement("div", {style: {width:10,height:10,borderRadius:2,background:c}}), React.createElement("span", {style: {fontSize:11,color:C.textMuted}}, l))
-      )))));
+  const handleSelect = (lot) => {
+    if(onSelect) { onSelect(lot); return; }
+    setSelectedLot(lot===selectedLot ? null : lot);
+  };
+  const renderSlot = (rack, slot) => {
+    const key = rack + " " + slot;
+    const slotLots = locMap[key] || [];
+    return React.createElement("div", {key: key, style:{display:"flex",alignItems:"center",gap:2,marginBottom:2}},
+      React.createElement("span", {style:{fontSize:7,color:C.textDim,width:8,flexShrink:0,textAlign:"center"}}, slot),
+      [0,1].map(i => {
+        const lot = slotLots[i];
+        const col = lotColor(lot);
+        const isSelected = lot && selectedLot && lot.id===selectedLot.id;
+        return React.createElement("div", {
+          key: i,
+          onClick: lot ? ()=>handleSelect(lot) : undefined,
+          title: lot ? (lot.name + " " + (lot.vintage||"") + " " + (lot.varietal||"")) : "",
+          style: {
+            width:22,height:22,borderRadius:4,
+            background: isSelected ? (col||C.accent) : (col ? col+"22" : C.bg),
+            border: "1.5px solid " + (isSelected ? (col||C.accent) : (col||C.cardBorder)),
+            cursor: lot ? "pointer" : "default",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:6,fontWeight:800,color: isSelected ? "#fff" : (col||C.textDim),
+            overflow:"hidden",transition:"all 0.15s",flexShrink:0
+          }
+        }, lot ? lot.name.replace("Barrel ","") : "");
+      })
+    );
+  };
+  const renderRack = (rack) => {
+    const hasBarrels = ["A","B","C"].some(s => (locMap[rack+" "+s]||[]).length>0);
+    return React.createElement("div", {key: rack, style:{
+        background: hasBarrels ? C.card : C.bg,
+        border: "1px solid " + (hasBarrels ? C.cardBorder : C.bg),
+        borderRadius:8,padding:"5px 4px",minWidth:58,flexShrink:0
+      }},
+      React.createElement("div", {style:{fontSize:7.5,color:C.textDim,fontWeight:700,textAlign:"center",marginBottom:4,letterSpacing:0.2}}, rack),
+      ["C","B","A"].map(slot => renderSlot(rack,slot))
+    );
+  };
+  const EBS_RACKS = ["EBS 0","EBS 1","EBS 2","EBS 3","EBS 4","EBS 5","EBS 6","EBS 7","EBS 8","EBS 9","EBS 10","EBS 11","EBS 12","EBS 13"];
+  const OBAS_PAIRS = [["OBAS 1","OBAS 2"],["OBAS 3","OBAS 4"],["OBAS 5","OBAS 6"],["OBAS 7","OBAS 8"],["OBAS 9","OBAS 10"]];
+  const OBS_RACKS = ["OBS 5"];
+  const placed = filtered.filter(l=>l.location&&l.type==="barrel").length;
+  const total = filtered.filter(l=>l.type==="barrel").length;
+  return React.createElement(React.Fragment, null,
+    React.createElement("div", {style:{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}},
+      React.createElement("span", {style:{fontSize:11,color:C.textDim,fontWeight:600,flexShrink:0}}, "Vintage:"),
+      [0,...vintages].map(v => React.createElement("button", {
+        key: v, onClick:()=>setFilterVintage(v),
+        style:{background:filterVintage===v?C.accent:C.card,border:"1px solid "+(filterVintage===v?C.accent:C.cardBorder),
+          borderRadius:8,padding:"4px 10px",color:filterVintage===v?"#fff":C.text,fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}
+      }, v===0?"All":String(v)))
+    ),
+    React.createElement("div", {style:{fontSize:10,color:C.textDim,marginBottom:10}},
+      placed + " of " + total + " barrels placed in racks"
+    ),
+    selectedLot && React.createElement("div", {
+      style:{background:C.card,border:"1.5px solid "+C.accent,borderRadius:12,padding:"12px 14px",marginBottom:12,position:"relative"}
+    },
+       React.createElement("button", {onClick:()=>setSelectedLot(null),
+        style:{position:"absolute",top:8,right:10,background:"transparent",border:"none",color:C.textDim,fontSize:16,cursor:"pointer"}}, "×"),
+       React.createElement("div", {style:{fontWeight:700,fontSize:13,marginBottom:2}}, selectedLot.name),
+       React.createElement("div", {style:{fontSize:11,color:C.textDim}},
+        [selectedLot.vintage,selectedLot.varietal,selectedLot.clone,selectedLot.block?("Block "+selectedLot.block):null].filter(Boolean).join(" · ")
+       ),
+      selectedLot.location && React.createElement("div", {style:{fontSize:11,color:C.textMuted,marginTop:2}}, "📙 "+selectedLot.location),
+      React.createElement("div", {style:{marginTop:8,display:"flex",gap:6,flexWrap:"wrap"}},
+        selectedLot.logs&&selectedLot.logs.length>0&&React.createElement("span", {style:{fontSize:10,background:C.accentDim,color:C.accentLight,borderRadius:6,padding:"2px 7px"}},
+          "pH "+((selectedLot.logs.slice().sort((a,b)=>b.date.localeCompare(a.date))[0]||{}).ph||"–")
+        ),
+        selectedLot.alert&&React.createElement("span", {style:{fontSize:10,background:C.red+"22",color:C.red,borderRadius:6,padding:"2px 7px"}}, "⚠️ "+selectedLot.alert.toUpperCase())
+      )
+    ),
+    React.createElement(Card, null,
+      React.createElement("div", {style:{fontSize:10,fontWeight:700,color:C.textDim,letterSpacing:0.8,marginBottom:8,textTransform:"uppercase"}}, "EBS — Event Barrel Storage"),
+      React.createElement("div", {style:{display:"flex",gap:5,overflowX:"auto",paddingBottom:6}},
+        EBS_RACKS.map(rack => renderRack(rack))
+      )
+    ),
+    React.createElement(Card, null,
+      React.createElement("div", {style:{fontSize:10,fontWeight:700,color:C.textDim,letterSpacing:0.8,marginBottom:8,textTransform:"uppercase"}}, "OBAS — Open Barrel Area South"),
+      React.createElement("div", {style:{display:"flex",gap:8,overflowX:"auto",paddingBottom:6,flexWrap:"wrap"}},
+        OBAS_PAIRS.map(pair => React.createElement("div", {key:pair[0],
+          style:{display:"flex",gap:4,background:C.bg,padding:4,borderRadius:8,border:"1px solid "+C.cardBorder}},
+          pair.map(rack => renderRack(rack))
+        ))
+      )
+    ),
+    OBS_RACKS.length > 0 && React.createElement(Card, null,
+      React.createElement("div", {style:{fontSize:10,fontWeight:700,color:C.textDim,letterSpacing:0.8,marginBottom:8,textTransform:"uppercase"}}, "OBS — Other Barrel Storage"),
+      React.createElement("div", {style:{display:"flex",gap:5,overflowX:"auto",paddingBottom:6}},
+        OBS_RACKS.map(rack => renderRack(rack))
+      )
+    ),
+    React.createElement("div", {style:{display:"flex",gap:8,flexWrap:"wrap",padding:"8px 0",marginTop:4}},
+      [{c:C.orange,l:"2024"},{c:C.blue,l:"2025"},{c:C.teal,l:"2026"},{c:C.red,l:"VA Alert"},{c:C.yellow,l:"SO₂ Low"},{c:C.accentLight,l:"MLF Slow"}].map(({c,l})=>
+        React.createElement("div", {key:l,style:{display:"flex",alignItems:"center",gap:4,fontSize:10,color:C.textMuted}},
+          React.createElement("span", {style:{display:"inline-block",width:9,height:9,borderRadius:2,background:c}}), l
+        )
+      )
+    )
+  );
 };
 
 
@@ -1267,12 +1352,12 @@ const BrixSugar = () => {
 };
 
 /* ── TOOLS SCREEN ── */
-const ToolsScreen = ({lots}) => {
+const ToolsScreen = ({lots, onSelect}) => {
   const [tab,setTab]=useState("so2");
   const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"}];
   return(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:2}}, tabs.map(t=>(
         React.createElement("button", {key: t.k, onClick: ()=>setTab(t.k), style: {background:tab===t.k?C.accent:C.card,border:`1px solid ${tab===t.k?C.accent:C.cardBorder}`,color:tab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}, t.l)
-      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots})));
+      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect})));
 };
 
 /* ── BARREL MAP inside Tools ── */
@@ -2016,7 +2101,7 @@ function App() {
               }), React.createElement("div", {style: {fontSize:12,color:C.textDim,background:C.bg,borderRadius:8,padding:"10px 12px",lineHeight:1.5,marginTop:4}}, "💡 Tap \"Done ✓\" to reset the timer. Adjust intervals based on wine condition — high-risk barrels should be topped more frequently.")), detailTab==="ph"&&React.createElement(PHTrackingTab, {lot: lot}), detailTab==="history"&&(React.createElement(React.Fragment, null, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:10}}, "Log History (", lot.logs.length, ")"), [...lot.logs].reverse().map((log,i)=>(
                 React.createElement("div", {key: i, style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:"13px 15px",marginBottom:10}}, React.createElement("div", {style: {fontWeight:700,fontSize:14,color:C.accentLight,marginBottom:8}}, log.date), React.createElement("div", {style: {display:"flex",gap:14,flexWrap:"wrap",marginBottom:log.notes?8:0}}, log.brix!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.brix, "°"), "Brix"), log.ph!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.ph), "pH"), log.ta!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.ta), "TA"), log.so2Free!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.so2Free), "SO₂"), log.temp!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.temp, "°F")), log.malic!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.malic), "Malic"), log.yan!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.yan), "YAN")), log.type==="transfer"&&React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.teal,marginBottom:4}}, "🔀 Transfer"), log.notes&&React.createElement("div", {style: {fontSize:12,color:C.textDim,fontStyle:"italic"}}, "\"", log.notes, "\""), log.user&&React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:4}}, "by", log.user))
               )), React.createElement("button", {onClick: ()=>{setForm(f=>({...f,lotId:String(lot.id)}));go(SCREENS.log,SCREENS.detail);}, style: {width:"100%",background:`linear-gradient(135deg,${C.accent},#6d28d9)`,border:"none",borderRadius:14,padding:14,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",marginBottom:8}}, "+ Log New Reading"), can(activeUser,"transfer") && React.createElement("button", {onClick: ()=>{setTransferLot(lot);go(SCREENS.transfer,SCREENS.detail)}, style: {width:"100%",background:C.card,border:`1px solid ${C.teal}`,borderRadius:14,padding:13,color:C.teal,fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:8}}, "🔀 Transfer / Rack Wine"), React.createElement("button", {onClick: ()=>{setReportLot(lot);go(SCREENS.report,SCREENS.detail)}, style: {width:"100%",background:C.card,border:`1px solid ${C.blue}`,borderRadius:14,padding:13,color:C.blue,fontSize:14,fontWeight:700,cursor:"pointer"}}, "📄 Print Barrel Report")))));
-        })(), screen===SCREENS.tools&&React.createElement(ToolsScreen, {lots: lots}), screen===SCREENS.alerts&&React.createElement(AlertsScreen, {lots: lots, setLots: setLots, onOpenCheckModal: openCheckModal}), screen===SCREENS.transfer&&React.createElement(TransferScreen, {sourceLot: transferLot, lots: lots, setLots: setLots, activeUser: activeUser, onDone: ()=>go(SCREENS.lots,SCREENS.detail), onCancel: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.blocks&&React.createElement(BlocksScreen, {activeWinery: activeWinery, setWineries: setWineries}), screen===SCREENS.report&&React.createElement(ReportScreen, {lot: reportLot, activeWinery: activeWinery, onBack: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.settings&&React.createElement(SettingsScreen, {activeWinery: activeWinery, setWineries: setWineries, lots: lots, setLots: setLots, wineries: wineries}), pinEntry.wineryId && (
+        })(), screen===SCREENS.tools&&React.createElement(ToolsScreen, {lots: lots, onSelect: (l)=>{setLot(l);go(SCREENS.detail,SCREENS.tools);}}), screen===SCREENS.alerts&&React.createElement(AlertsScreen, {lots: lots, setLots: setLots, onOpenCheckModal: openCheckModal}), screen===SCREENS.transfer&&React.createElement(TransferScreen, {sourceLot: transferLot, lots: lots, setLots: setLots, activeUser: activeUser, onDone: ()=>go(SCREENS.lots,SCREENS.detail), onCancel: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.blocks&&React.createElement(BlocksScreen, {activeWinery: activeWinery, setWineries: setWineries}), screen===SCREENS.report&&React.createElement(ReportScreen, {lot: reportLot, activeWinery: activeWinery, onBack: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.settings&&React.createElement(SettingsScreen, {activeWinery: activeWinery, setWineries: setWineries, lots: lots, setLots: setLots, wineries: wineries}), pinEntry.wineryId && (
         React.createElement("div", {style: {position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}, React.createElement("div", {style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:20,padding:28,width:"100%",maxWidth:340}}, React.createElement("div", {style: {fontSize:16,fontWeight:800,textAlign:"center",marginBottom:20}}, "Enter Winery Passcode"), React.createElement("div", {style: {display:"flex",gap:10,justifyContent:"center",marginBottom:20}}, [0,1,2,3].map(i=>(
                 React.createElement("div", {key: i, style: {width:50,height:60,borderRadius:10,background:C.bg,border:`2px solid ${pinEntry.value.length===i?C.accent:C.cardBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:800,color:C.text}}, pinEntry.value[i]?"●":"")
               ))), React.createElement("div", {style: {display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:10}}, [1,2,3,4,5,6,7,8,9].map(n=>(
