@@ -1354,6 +1354,213 @@ const BrixSugar = () => {
 /* ── TOOLS SCREEN ── */
 
 
+
+const DryGoodsScreen = () => {
+  const CATEGORIES = [
+    {k:'so2',    l:'SO₂',         unit:'g',   icon:'🧪'},
+    {k:'bentonite', l:'Bentonite', unit:'lbs', icon:'🪨'},
+    {k:'oak',    l:'Oak',         unit:'lbs', icon:'🪵'},
+    {k:'yeast',  l:'Yeast',       unit:'g',   icon:'🧫'},
+    {k:'acid',   l:'Tartaric',    unit:'lbs', icon:'⚗️'},
+    {k:'enzyme', l:'Enzyme',      unit:'mL',  icon:'🔬'},
+    {k:'tannin', l:'Tannin',      unit:'g',   icon:'🍂'},
+    {k:'nutrient',l:'YAN/Nutrient',unit:'g',  icon:'🌿'},
+    {k:'other',  l:'Other',       unit:'unit',icon:'📦'},
+  ];
+
+  const [items, setItems] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('cm_drygoods') || '[]'); } catch(e) { return []; }
+  });
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({name:'', category:'so2', qty:'', unit:'g', low:'', notes:''});
+  const [filterCat, setFilterCat] = React.useState('all');
+
+  React.useEffect(() => {
+    try { localStorage.setItem('cm_drygoods', JSON.stringify(items)); } catch(e) {}
+  }, [items]);
+
+  const addItem = () => {
+    if (!form.name.trim() || !form.qty) return;
+    const cat = CATEGORIES.find(c => c.k === form.category) || CATEGORIES[0];
+    setItems(prev => [...prev, {
+      id: Date.now(),
+      name: form.name.trim(),
+      category: form.category,
+      qty: Number(form.qty),
+      unit: form.unit || cat.unit,
+      low: form.low ? Number(form.low) : null,
+      notes: form.notes.trim(),
+      updated: new Date().toISOString().slice(0,10),
+    }]);
+    setForm({name:'', category:'so2', qty:'', unit:'g', low:'', notes:''});
+    setShowAdd(false);
+  };
+
+  const deleteItem = (id) => setItems(prev => prev.filter(i => i.id !== id));
+
+  const adjustQty = (id, delta) => setItems(prev => prev.map(i =>
+    i.id === id ? {...i, qty: Math.max(0, i.qty + delta), updated: new Date().toISOString().slice(0,10)} : i
+  ));
+
+  const filtered = filterCat === 'all' ? items : items.filter(i => i.category === filterCat);
+  const lowItems = items.filter(i => i.low !== null && i.qty <= i.low);
+
+  return React.createElement(React.Fragment, null,
+
+    // Low stock alert
+    lowItems.length > 0 && React.createElement('div', {style:{background:C.yellowDim,border:'1px solid '+C.yellow+'55',borderRadius:10,padding:'10px 14px',marginBottom:12,fontSize:12,color:C.yellow}},
+      '⚠️ Low stock: ' + lowItems.map(i => i.name).join(', ')
+    ),
+
+    // Category filter chips
+    React.createElement('div', {style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}},
+      React.createElement('button', {
+        onClick:()=>setFilterCat('all'),
+        style:{padding:'4px 10px',borderRadius:20,border:'1px solid '+(filterCat==='all'?C.accent:C.cardBorder),
+               background:filterCat==='all'?C.accentDim:'transparent',color:filterCat==='all'?C.accentLight:C.textMuted,
+               fontSize:11,cursor:'pointer',fontWeight:600}
+      }, 'All ('+items.length+')'),
+      CATEGORIES.map(cat => {
+        const count = items.filter(i => i.category === cat.k).length;
+        if (count === 0) return null;
+        const active = filterCat === cat.k;
+        return React.createElement('button', {
+          key:cat.k,
+          onClick:()=>setFilterCat(cat.k),
+          style:{padding:'4px 10px',borderRadius:20,border:'1px solid '+(active?C.accent:C.cardBorder),
+                 background:active?C.accentDim:'transparent',color:active?C.accentLight:C.textMuted,
+                 fontSize:11,cursor:'pointer',fontWeight:600}
+        }, cat.icon+' '+cat.l+' ('+count+')');
+      })
+    ),
+
+    // Add button row
+    React.createElement('div', {style:{display:'flex',justifyContent:'flex-end',marginBottom:12}},
+      React.createElement('button', {
+        onClick:()=>setShowAdd(true),
+        style:{background:C.accent,border:'none',borderRadius:8,padding:'7px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}
+      }, '+ Add Item')
+    ),
+
+    // Items list
+    filtered.length === 0 && React.createElement('div', {style:{textAlign:'center',color:C.textDim,padding:'32px 0',fontSize:13}},
+      items.length === 0 ? 'No items yet. Add SO₂, bentonite, oak, yeast and more.' : 'No items in this category.'
+    ),
+
+    filtered.map(item => {
+      const cat = CATEGORIES.find(c => c.k === item.category) || CATEGORIES[8];
+      const isLow = item.low !== null && item.qty <= item.low;
+      return React.createElement(Card, {key:item.id},
+        React.createElement('div', {style:{display:'flex',alignItems:'center',gap:10}},
+          React.createElement('div', {style:{fontSize:22,lineHeight:1}}, cat.icon),
+          React.createElement('div', {style:{flex:1,minWidth:0}},
+            React.createElement('div', {style:{fontWeight:700,fontSize:14,color:C.text}}, item.name),
+            React.createElement('div', {style:{fontSize:11,color:C.textDim,marginTop:2}},
+              cat.l + (item.notes ? ' · ' + item.notes : '')
+            )
+          ),
+          React.createElement('div', {style:{textAlign:'right',flexShrink:0}},
+            React.createElement('div', {style:{fontSize:18,fontWeight:700,color:isLow?C.yellow:C.text}},
+              item.qty + ' ' + item.unit
+            ),
+            item.low !== null && React.createElement('div', {style:{fontSize:10,color:isLow?C.yellow:C.textDim}},
+              'low: ' + item.low + ' ' + item.unit
+            )
+          )
+        ),
+        // +/- controls
+        React.createElement('div', {style:{display:'flex',gap:6,marginTop:10,alignItems:'center'}},
+          React.createElement('button', {
+            onClick:()=>adjustQty(item.id,-1),
+            style:{width:32,height:32,borderRadius:8,border:'1px solid '+C.cardBorder,background:'transparent',color:C.text,fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}
+          }, '−'),
+          React.createElement('button', {
+            onClick:()=>adjustQty(item.id,1),
+            style:{width:32,height:32,borderRadius:8,border:'1px solid '+C.cardBorder,background:'transparent',color:C.text,fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}
+          }, '+'),
+          React.createElement('div', {style:{fontSize:10,color:C.textDim,flex:1,textAlign:'right'}}, 'Updated '+item.updated),
+          React.createElement('button', {
+            onClick:()=>deleteItem(item.id),
+            style:{background:'transparent',border:'none',color:C.textDim,cursor:'pointer',padding:'4px 6px',fontSize:11}
+          }, '✕')
+        )
+      );
+    }),
+
+    // Add modal
+    showAdd && React.createElement('div', {
+      style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}
+    },
+      React.createElement('div', {style:{background:C.card,borderRadius:16,padding:24,width:'100%',maxWidth:380,border:'1px solid '+C.cardBorder}},
+        React.createElement('div', {style:{fontWeight:700,fontSize:16,marginBottom:16}}, '📦 Add Inventory Item'),
+
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Item Name'),
+        React.createElement('input', {
+          value:form.name, placeholder:'e.g. SO₂ Powder, Wyeast 4783...',
+          onChange:e=>setForm(f=>({...f,name:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:12,outline:'none',boxSizing:'border-box'}
+        }),
+
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Category'),
+        React.createElement('select', {
+          value:form.category,
+          onChange:e=>{
+            const cat = CATEGORIES.find(c=>c.k===e.target.value)||CATEGORIES[0];
+            setForm(f=>({...f,category:e.target.value,unit:cat.unit}));
+          },
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:12,outline:'none',cursor:'pointer'}
+        },
+          CATEGORIES.map(cat => React.createElement('option', {key:cat.k,value:cat.k}, cat.icon+' '+cat.l))
+        ),
+
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 80px',gap:8,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Quantity'),
+            React.createElement('input', {
+              type:'number',step:'0.1',value:form.qty,placeholder:'0',
+              onChange:e=>setForm(f=>({...f,qty:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}
+            })
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Unit'),
+            React.createElement('input', {
+              value:form.unit,placeholder:'g',
+              onChange:e=>setForm(f=>({...f,unit:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}
+            })
+          )
+        ),
+
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Low Stock Alert (optional)'),
+        React.createElement('input', {
+          type:'number',step:'0.1',value:form.low,placeholder:'Alert when below...',
+          onChange:e=>setForm(f=>({...f,low:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:12,outline:'none',boxSizing:'border-box'}
+        }),
+
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Notes'),
+        React.createElement('input', {
+          value:form.notes,placeholder:'Supplier, lot #, storage location...',
+          onChange:e=>setForm(f=>({...f,notes:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:20,outline:'none',boxSizing:'border-box'}
+        }),
+
+        React.createElement('div', {style:{display:'flex',gap:10}},
+          React.createElement('button', {
+            onClick:addItem,
+            style:{flex:1,background:C.accent,border:'none',borderRadius:10,padding:12,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}
+          }, 'Add Item'),
+          React.createElement('button', {
+            onClick:()=>setShowAdd(false),
+            style:{flex:1,background:C.bg,border:'1px solid '+C.cardBorder,borderRadius:10,padding:12,color:C.textMuted,fontSize:13,fontWeight:700,cursor:'pointer'}
+          }, 'Cancel')
+        )
+      )
+    )
+  );
+};
+
 const FermentationScreen = ({lots}) => {
   const activeLots = lots ? lots.filter(l => l.status !== 'done' && l.status !== 'bottled') : [];
 
@@ -1764,10 +1971,10 @@ const WorkOrdersScreen = ({lots, members}) => {
 
 const ToolsScreen = ({lots, onSelect, members}) => {
   const [tab,setTab]=useState("so2");
-  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"}];
+  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"}];
   return(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:2}}, tabs.map(t=>(
         React.createElement("button", {key: t.k, onClick: ()=>setTab(t.k), style: {background:tab===t.k?C.accent:C.card,border:`1px solid ${tab===t.k?C.accent:C.cardBorder}`,color:tab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}, t.l)
-      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots})));
+      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null)));
 };
 
 /* ── BARREL MAP inside Tools ── */
