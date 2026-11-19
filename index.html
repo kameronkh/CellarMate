@@ -2312,6 +2312,266 @@ const TTBScreen = ({lots, activeWinery}) => {
   );
 };
 
+const LabScreen = ({lots=[]}) => {
+  const PARAMS = [
+    {k:'ph',    l:'pH',         unit:'',     min:2.5, max:5,   step:0.01},
+    {k:'ta',    l:'TA',         unit:'g/L',  min:0,   max:20,  step:0.1},
+    {k:'va',    l:'VA',         unit:'g/L',  min:0,   max:5,   step:0.01},
+    {k:'rs',    l:'RS',         unit:'g/L',  min:0,   max:300, step:0.1},
+    {k:'fso2',  l:'Free SO₂',  unit:'mg/L', min:0,   max:200, step:1},
+    {k:'tso2',  l:'Total SO₂', unit:'mg/L', min:0,   max:400, step:1},
+    {k:'alc',   l:'Alcohol',   unit:'%',    min:0,   max:25,  step:0.1},
+    {k:'brix',  l:'Brix',      unit:'°Bx',  min:-5,  max:35,  step:0.1},
+  ];
+  const [readings, setReadings] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('cm_lab') || '[]'); } catch(e) { return []; }
+  });
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [filterLot, setFilterLot] = React.useState('all');
+  const EMPTY = {lotName:'', date:new Date().toISOString().slice(0,10), ph:'', ta:'', va:'', rs:'', fso2:'', tso2:'', alc:'', brix:'', notes:''};
+  const [form, setForm] = React.useState(EMPTY);
+  React.useEffect(() => {
+    try { localStorage.setItem('cm_lab', JSON.stringify(readings)); } catch(e) {}
+  }, [readings]);
+  const addReading = () => {
+    if (!form.lotName.trim() || !form.date) return;
+    const rec = {id:Date.now(), lotName:form.lotName.trim(), date:form.date, notes:form.notes.trim()};
+    PARAMS.forEach(p => { if (form[p.k]!=='') rec[p.k]=Number(form[p.k]); });
+    setReadings(prev => [...prev, rec]);
+    setForm(EMPTY);
+    setShowAdd(false);
+  };
+  const lotNames = [...new Set([...lots.map(l=>l.name), ...readings.map(r=>r.lotName)])].sort();
+  const filtered = filterLot==='all' ? readings.slice().reverse() : readings.filter(r=>r.lotName===filterLot).slice().reverse();
+  // For each lot, get the latest reading of each param for quick summary
+  const latestByLot = {};
+  readings.forEach(r => {
+    if (!latestByLot[r.lotName]) latestByLot[r.lotName] = {};
+    PARAMS.forEach(p => { if (r[p.k]!=null) latestByLot[r.lotName][p.k] = {v:r[p.k], date:r.date}; });
+  });
+  const displayLots = filterLot!=='all' ? [filterLot] : [...new Set(readings.map(r=>r.lotName))].sort();
+  return React.createElement(React.Fragment, null,
+    // Filter bar
+    React.createElement('div', {style:{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}},
+      React.createElement('select', {value:filterLot, onChange:e=>setFilterLot(e.target.value),
+        style:{background:C.card,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'6px 10px',fontSize:13,flex:1,outline:'none',cursor:'pointer'}},
+        React.createElement('option',{value:'all'},'All Lots'),
+        lotNames.map(n=>React.createElement('option',{key:n,value:n},n))
+      ),
+      React.createElement('button', {onClick:()=>setShowAdd(true),
+        style:{background:C.accent,border:'none',borderRadius:8,padding:'7px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}},
+        '+ Add Reading')
+    ),
+    // Latest summary cards per lot
+    filterLot==='all' && displayLots.length>0 && React.createElement('div', {style:{marginBottom:16}},
+      React.createElement('div', {style:{fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:0.8,textTransform:'uppercase',marginBottom:8}}, 'LATEST VALUES BY LOT'),
+      displayLots.map(lotN => {
+        const lat = latestByLot[lotN] || {};
+        return React.createElement(Card, {key:lotN},
+          React.createElement('div', {style:{fontWeight:700,fontSize:14,color:C.accentLight,marginBottom:8}}, lotN),
+          React.createElement('div', {style:{display:'flex',gap:10,flexWrap:'wrap'}},
+            PARAMS.map(p => lat[p.k]!=null ? React.createElement('div', {key:p.k,
+              style:{background:C.bg,borderRadius:6,padding:'4px 8px',minWidth:60}},
+              React.createElement('div', {style:{fontSize:9,color:C.textDim,textTransform:'uppercase',letterSpacing:0.6}}, p.l),
+              React.createElement('div', {style:{fontSize:14,fontWeight:700,color:C.text}}, lat[p.k].v+(p.unit?' '+p.unit:''))
+            ) : null)
+          )
+        );
+      })
+    ),
+    // Individual reading history
+    filtered.length>0 && React.createElement('div', {style:{marginTop:filterLot==='all'?8:0}},
+      filterLot!=='all' && React.createElement('div', {style:{fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:0.8,textTransform:'uppercase',marginBottom:8}}, 'HISTORY — '+filterLot),
+      filtered.map(r =>
+        React.createElement(Card, {key:r.id},
+          React.createElement('div', {style:{display:'flex',justifyContent:'space-between',marginBottom:6}},
+            React.createElement('div', {style:{fontWeight:700,fontSize:14,color:filterLot==='all'?C.accentLight:C.text}}, filterLot==='all'?r.lotName:r.date),
+            React.createElement('div', {style:{display:'flex',gap:8,alignItems:'center'}},
+              filterLot==='all' && React.createElement('div', {style:{fontSize:12,color:C.textDim}}, r.date),
+              React.createElement('button', {onClick:()=>setReadings(prev=>prev.filter(x=>x.id!==r.id)),
+                style:{background:'transparent',border:'none',color:C.textDim,cursor:'pointer',padding:'2px 4px',fontSize:11}}, '✕')
+            )
+          ),
+          React.createElement('div', {style:{display:'flex',gap:8,flexWrap:'wrap'}},
+            PARAMS.map(p => r[p.k]!=null ? React.createElement('div', {key:p.k,
+              style:{background:C.bg,borderRadius:6,padding:'4px 8px',minWidth:60}},
+              React.createElement('div', {style:{fontSize:9,color:C.textDim,textTransform:'uppercase',letterSpacing:0.6}}, p.l),
+              React.createElement('div', {style:{fontSize:14,fontWeight:700,color:C.text}}, r[p.k]+(p.unit?' '+p.unit:''))
+            ) : null)
+          ),
+          r.notes && React.createElement('div', {style:{fontSize:11,color:C.textDim,marginTop:6,fontStyle:'italic'}}, r.notes)
+        )
+      )
+    ),
+    readings.length===0 && React.createElement('div', {style:{textAlign:'center',color:C.textDim,padding:'32px 0',fontSize:13}},
+      'No lab readings yet. Add your first analysis to start tracking wine chemistry.'),
+    // Add reading modal
+    showAdd && React.createElement('div', {style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}},
+      React.createElement('div', {style:{background:C.card,borderRadius:16,padding:24,width:'100%',maxWidth:440,border:'1px solid '+C.cardBorder,maxHeight:'90vh',overflowY:'auto'}},
+        React.createElement('div', {style:{fontWeight:700,fontSize:16,marginBottom:16}}, '🔬 Add Lab Reading'),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Lot'),
+            React.createElement('select', {value:form.lotName, onChange:e=>setForm(f=>({...f,lotName:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',cursor:'pointer'}},
+              React.createElement('option',{value:''},'— Select —'),
+              lotNames.map(n=>React.createElement('option',{key:n,value:n},n)),
+              form.lotName && !lotNames.includes(form.lotName) && React.createElement('option',{value:form.lotName},form.lotName)
+            )
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Date'),
+            React.createElement('input', {type:'date', value:form.date, onChange:e=>setForm(f=>({...f,date:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none'}})
+          )
+        ),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}},
+          PARAMS.map(p => React.createElement('div', {key:p.k},
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, p.l+(p.unit?' ('+p.unit+')':'')),
+            React.createElement('input', {type:'number', value:form[p.k], step:p.step, min:p.min, max:p.max,
+              placeholder:p.min+'-'+p.max, onChange:e=>setForm(f=>({...f,[p.k]:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none'}})
+          ))
+        ),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Notes'),
+        React.createElement('input', {value:form.notes, placeholder:'Source lab, analyst, comments...', onChange:e=>setForm(f=>({...f,notes:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',marginBottom:20}}),
+        React.createElement('div', {style:{display:'flex',gap:10}},
+          React.createElement('button', {onClick:addReading,
+            style:{flex:1,background:C.accent,border:'none',borderRadius:10,padding:12,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}, 'Save Reading'),
+          React.createElement('button', {onClick:()=>setShowAdd(false),
+            style:{flex:1,background:C.bg,border:'1px solid '+C.cardBorder,borderRadius:10,padding:12,color:C.textMuted,fontSize:13,fontWeight:700,cursor:'pointer'}}, 'Cancel')
+        )
+      )
+    )
+  );
+};
+
+const CellarLogScreen = ({lots=[]}) => {
+  const EVENT_TYPES = [
+    {k:'topping',   l:'Topping',         icon:'🪣', color:'#3b82f6'},
+    {k:'so2',       l:'SO₂ Addition',    icon:'🧪', color:'#8b5cf6'},
+    {k:'racking',   l:'Racking',         icon:'🔄', color:'#14b8a6'},
+    {k:'filtering', l:'Filtering',       icon:'🔽', color:'#eab308'},
+    {k:'blending',  l:'Blending',        icon:'🔀', color:'#f97316'},
+    {k:'addition',  l:'Addition/Fining', icon:'⚗️',  color:'#ec4899'},
+    {k:'tasting',   l:'Tasting Note',    icon:'🍷', color:'#ef4444'},
+    {k:'transfer',  l:'Transfer',        icon:'📦', color:'#64748b'},
+    {k:'other',     l:'Other',           icon:'📝', color:'#94a3b8'},
+  ];
+  const [events, setEvents] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('cm_cellarlog') || '[]'); } catch(e) { return []; }
+  });
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [filterLot, setFilterLot] = React.useState('all');
+  const EMPTY = {lotName:'', date:new Date().toISOString().slice(0,10), type:'topping', detail:'', qty:'', unit:'', notes:''};
+  const [form, setForm] = React.useState(EMPTY);
+  React.useEffect(() => {
+    try { localStorage.setItem('cm_cellarlog', JSON.stringify(events)); } catch(e) {}
+  }, [events]);
+  const addEvent = () => {
+    if (!form.lotName.trim() || !form.date || !form.type) return;
+    setEvents(prev => [...prev, {
+      id:Date.now(), lotName:form.lotName.trim(), date:form.date,
+      type:form.type, detail:form.detail.trim(),
+      qty:form.qty?Number(form.qty):null, unit:form.unit.trim(),
+      notes:form.notes.trim()
+    }]);
+    setForm(EMPTY);
+    setShowAdd(false);
+  };
+  const lotNames = [...new Set([...lots.map(l=>l.name), ...events.map(e=>e.lotName)])].sort();
+  const filtered = (filterLot==='all' ? events : events.filter(e=>e.lotName===filterLot))
+    .slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const getType = k => EVENT_TYPES.find(t=>t.k===k)||EVENT_TYPES[EVENT_TYPES.length-1];
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', {style:{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}},
+      React.createElement('select', {value:filterLot, onChange:e=>setFilterLot(e.target.value),
+        style:{background:C.card,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'6px 10px',fontSize:13,flex:1,outline:'none',cursor:'pointer'}},
+        React.createElement('option',{value:'all'},'All Lots'),
+        lotNames.map(n=>React.createElement('option',{key:n,value:n},n))
+      ),
+      React.createElement('button', {onClick:()=>setShowAdd(true),
+        style:{background:C.accent,border:'none',borderRadius:8,padding:'7px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}},
+        '+ Log Event')
+    ),
+    filtered.length===0 && React.createElement('div', {style:{textAlign:'center',color:C.textDim,padding:'32px 0',fontSize:13}},
+      'No cellar events logged yet. Track toppings, rackings, SO₂ additions, and more.'),
+    filtered.map(ev => {
+      const t = getType(ev.type);
+      return React.createElement('div', {key:ev.id,
+        style:{background:C.card,border:'1px solid '+C.cardBorder,borderRadius:12,padding:'12px 14px',marginBottom:10,display:'flex',gap:12,alignItems:'flex-start'}},
+        React.createElement('div', {style:{fontSize:22,lineHeight:1,marginTop:2}}, t.icon),
+        React.createElement('div', {style:{flex:1,minWidth:0}},
+          React.createElement('div', {style:{display:'flex',justifyContent:'space-between',marginBottom:4}},
+            React.createElement('div', null,
+              filterLot==='all' && React.createElement('span', {style:{fontWeight:700,color:C.accentLight,fontSize:13,marginRight:8}}, ev.lotName),
+              React.createElement('span', {style:{fontSize:12,fontWeight:700,color:t.color,background:t.color+'22',borderRadius:4,padding:'2px 6px'}}, t.l)
+            ),
+            React.createElement('div', {style:{display:'flex',gap:8,alignItems:'center'}},
+              React.createElement('div', {style:{fontSize:12,color:C.textDim}}, ev.date),
+              React.createElement('button', {onClick:()=>setEvents(prev=>prev.filter(x=>x.id!==ev.id)),
+                style:{background:'transparent',border:'none',color:C.textDim,cursor:'pointer',padding:'2px 4px',fontSize:11}}, '✕')
+            )
+          ),
+          ev.detail && React.createElement('div', {style:{fontSize:13,color:C.text,marginBottom:2}}, ev.detail),
+          ev.qty!=null && React.createElement('div', {style:{fontSize:12,color:C.textMuted}}, ev.qty+' '+ev.unit),
+          ev.notes && React.createElement('div', {style:{fontSize:11,color:C.textDim,fontStyle:'italic',marginTop:2}}, ev.notes)
+        )
+      );
+    }),
+    showAdd && React.createElement('div', {style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}},
+      React.createElement('div', {style:{background:C.card,borderRadius:16,padding:24,width:'100%',maxWidth:400,border:'1px solid '+C.cardBorder,maxHeight:'90vh',overflowY:'auto'}},
+        React.createElement('div', {style:{fontWeight:700,fontSize:16,marginBottom:16}}, '📋 Log Cellar Event'),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Lot'),
+            React.createElement('select', {value:form.lotName, onChange:e=>setForm(f=>({...f,lotName:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',cursor:'pointer'}},
+              React.createElement('option',{value:''},'— Select —'),
+              lotNames.map(n=>React.createElement('option',{key:n,value:n},n))
+            )
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Date'),
+            React.createElement('input', {type:'date', value:form.date, onChange:e=>setForm(f=>({...f,date:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none'}})
+          )
+        ),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Event Type'),
+        React.createElement('select', {value:form.type, onChange:e=>setForm(f=>({...f,type:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',cursor:'pointer',marginBottom:12}},
+          EVENT_TYPES.map(t=>React.createElement('option',{key:t.k,value:t.k},t.icon+' '+t.l))
+        ),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Detail'),
+        React.createElement('input', {value:form.detail, placeholder:'e.g. Topped 3 barrels, Racked to clean barrel...', onChange:e=>setForm(f=>({...f,detail:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',marginBottom:12}}),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Qty'),
+            React.createElement('input', {type:'number', value:form.qty, placeholder:'0', onChange:e=>setForm(f=>({...f,qty:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none'}})
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Unit'),
+            React.createElement('input', {value:form.unit, placeholder:'mL, g, gal...', onChange:e=>setForm(f=>({...f,unit:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none'}})
+          )
+        ),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Notes'),
+        React.createElement('input', {value:form.notes, placeholder:'Additional notes...', onChange:e=>setForm(f=>({...f,notes:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',marginBottom:20}}),
+        React.createElement('div', {style:{display:'flex',gap:10}},
+          React.createElement('button', {onClick:addEvent,
+            style:{flex:1,background:C.accent,border:'none',borderRadius:10,padding:12,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}, 'Log Event'),
+          React.createElement('button', {onClick:()=>setShowAdd(false),
+            style:{flex:1,background:C.bg,border:'1px solid '+C.cardBorder,borderRadius:10,padding:12,color:C.textMuted,fontSize:13,fontWeight:700,cursor:'pointer'}}, 'Cancel')
+        )
+      )
+    )
+  );
+};
+
 const QRScanScreen = ({lots}) => {
   const [scanning, setScanning] = React.useState(false);
   const [result, setResult]     = React.useState(null);
@@ -2695,10 +2955,12 @@ const WorkOrdersScreen = ({lots, members}) => {
 
 const ToolsScreen = ({lots, onSelect, members}) => {
   const [tab,setTab]=useState("so2");
-  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"},{k:"case",l:"🍾 Case Goods"},{k:"cogs",l:"💰 COGS"},{k:"qr",l:"📷 QR Scan"},{k:"ttb",l:"📋 TTB Report"}];
+  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"},{k:"case",l:"🍾 Case Goods"},{k:"cogs",l:"💰 COGS"},{k:"lab",l:"🔬 Lab"},{k:"log",l:"📋 Cellar Log"},{k:"qr",l:"📷 QR Scan"},{k:"ttb",l:"📋 TTB Report"}];
   return(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:2}}, tabs.map(t=>(
         React.createElement("button", {key: t.k, onClick: ()=>setTab(t.k), style: {background:tab===t.k?C.accent:C.card,border:`1px solid ${tab===t.k?C.accent:C.cardBorder}`,color:tab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}, t.l)
       ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendWrapper, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, {lots: lots}), tab==="cogs"&&React.createElement(COGSScreen, null),
+    tab==="lab"&&React.createElement(LabScreen, {lots: lots}),
+    tab==="log"&&React.createElement(CellarLogScreen, {lots: lots}),
     tab==="qr"&&React.createElement(QRScanScreen, {lots: lots}),
     tab==="ttb"&&React.createElement(TTBScreen, {lots: lots, activeWinery: activeWinery})));
 };
