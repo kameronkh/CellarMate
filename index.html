@@ -1355,6 +1355,166 @@ const BrixSugar = () => {
 
 
 
+
+const CaseGoodsScreen = () => {
+  const BOTTLE_SIZES = [
+    {k:'750ml', l:'750 mL'},
+    {k:'375ml', l:'375 mL (Half)'},
+    {k:'1500ml', l:'1.5 L (Magnum)'},
+    {k:'3000ml', l:'3.0 L (Double Mag)'},
+    {k:'other', l:'Other'},
+  ];
+  const [runs, setRuns] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('cm_casegoods') || '[]'); } catch(e) { return []; }
+  });
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({lot:'', vintage:'', varietal:'', bottleSize:'750ml', casesProduced:'', bottlesPerCase:'12', label:'', notes:'', date:new Date().toISOString().slice(0,10)});
+  React.useEffect(() => {
+    try { localStorage.setItem('cm_casegoods', JSON.stringify(runs)); } catch(e) {}
+  }, [runs]);
+  const addRun = () => {
+    if (!form.lot.trim() || !form.casesProduced) return;
+    setRuns(prev => [...prev, {
+      id: Date.now(), lot: form.lot.trim(), vintage: form.vintage.trim(),
+      varietal: form.varietal.trim(), bottleSize: form.bottleSize,
+      casesProduced: Number(form.casesProduced),
+      bottlesPerCase: Number(form.bottlesPerCase) || 12,
+      label: form.label.trim(), notes: form.notes.trim(), date: form.date,
+    }]);
+    setForm({lot:'', vintage:'', varietal:'', bottleSize:'750ml', casesProduced:'', bottlesPerCase:'12', label:'', notes:'', date:new Date().toISOString().slice(0,10)});
+    setShowAdd(false);
+  };
+  const deleteRun = (id) => setRuns(prev => prev.filter(r => r.id !== id));
+  const totalCases = runs.reduce((s,r) => s+r.casesProduced, 0);
+  const totalBottles = runs.reduce((s,r) => s+r.casesProduced*r.bottlesPerCase, 0);
+  return React.createElement(React.Fragment, null,
+    runs.length > 0 && React.createElement('div', {style:{display:'flex',gap:12,marginBottom:16,flexWrap:'wrap'}},
+      React.createElement('div', {style:{flex:1,background:C.card,border:'1px solid '+C.cardBorder,borderRadius:10,padding:'10px 14px',minWidth:100}},
+        React.createElement('div', {style:{fontSize:11,color:C.textDim,marginBottom:2}}, 'BOTTLING RUNS'),
+        React.createElement('div', {style:{fontSize:22,fontWeight:700,color:C.accentLight}}, runs.length)
+      ),
+      React.createElement('div', {style:{flex:1,background:C.card,border:'1px solid '+C.cardBorder,borderRadius:10,padding:'10px 14px',minWidth:100}},
+        React.createElement('div', {style:{fontSize:11,color:C.textDim,marginBottom:2}}, 'TOTAL CASES'),
+        React.createElement('div', {style:{fontSize:22,fontWeight:700,color:C.green}}, totalCases.toLocaleString())
+      ),
+      React.createElement('div', {style:{flex:1,background:C.card,border:'1px solid '+C.cardBorder,borderRadius:10,padding:'10px 14px',minWidth:100}},
+        React.createElement('div', {style:{fontSize:11,color:C.textDim,marginBottom:2}}, 'TOTAL BOTTLES'),
+        React.createElement('div', {style:{fontSize:22,fontWeight:700,color:C.blue}}, totalBottles.toLocaleString())
+      )
+    ),
+    React.createElement('div', {style:{display:'flex',justifyContent:'flex-end',marginBottom:12}},
+      React.createElement('button', {
+        onClick:()=>setShowAdd(true),
+        style:{background:C.accent,border:'none',borderRadius:8,padding:'7px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}
+      }, '+ Log Bottling Run')
+    ),
+    runs.length === 0 && React.createElement('div', {style:{textAlign:'center',color:C.textDim,padding:'32px 0',fontSize:13}},
+      'No bottling runs logged yet. Record your first run to track case goods inventory.'
+    ),
+    runs.slice().reverse().map(run => {
+      const sizeLabel = (BOTTLE_SIZES.find(s => s.k === run.bottleSize)||BOTTLE_SIZES[0]).l;
+      return React.createElement(Card, {key:run.id},
+        React.createElement('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}},
+          React.createElement('div', null,
+            React.createElement('div', {style:{fontWeight:700,fontSize:15,color:C.text}},
+              run.lot+(run.vintage?' · '+run.vintage:'')+(run.varietal?' · '+run.varietal:'')
+            ),
+            run.label&&React.createElement('div', {style:{fontSize:11,color:C.textDim,marginTop:2}}, '🏷 '+run.label)
+          ),
+          React.createElement('div', {style:{textAlign:'right'}},
+            React.createElement('div', {style:{fontSize:12,color:C.textDim}}, run.date),
+            React.createElement('button', {
+              onClick:()=>deleteRun(run.id),
+              style:{background:'transparent',border:'none',color:C.textDim,cursor:'pointer',padding:'2px 4px',fontSize:11,marginTop:4,display:'block',marginLeft:'auto'}
+            }, '✕')
+          )
+        ),
+        React.createElement('div', {style:{display:'flex',gap:16,flexWrap:'wrap'}},
+          React.createElement('div', {style:{flex:1,minWidth:80}},
+            React.createElement('div', {style:{fontSize:10,color:C.textDim,marginBottom:2}}, 'CASES'),
+            React.createElement('div', {style:{fontSize:20,fontWeight:700,color:C.green}}, run.casesProduced.toLocaleString())
+          ),
+          React.createElement('div', {style:{flex:1,minWidth:80}},
+            React.createElement('div', {style:{fontSize:10,color:C.textDim,marginBottom:2}}, 'BOTTLES'),
+            React.createElement('div', {style:{fontSize:20,fontWeight:700,color:C.blue}}, (run.casesProduced*run.bottlesPerCase).toLocaleString())
+          ),
+          React.createElement('div', {style:{flex:1,minWidth:80}},
+            React.createElement('div', {style:{fontSize:10,color:C.textDim,marginBottom:2}}, 'BOTTLE SIZE'),
+            React.createElement('div', {style:{fontSize:14,fontWeight:600,color:C.text}}, sizeLabel)
+          ),
+          React.createElement('div', {style:{flex:1,minWidth:80}},
+            React.createElement('div', {style:{fontSize:10,color:C.textDim,marginBottom:2}}, 'BTL / CASE'),
+            React.createElement('div', {style:{fontSize:14,fontWeight:600,color:C.text}}, run.bottlesPerCase)
+          )
+        ),
+        run.notes&&React.createElement('div', {style:{fontSize:11,color:C.textDim,marginTop:8,fontStyle:'italic'}}, run.notes)
+      );
+    }),
+    showAdd && React.createElement('div', {
+      style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}
+    },
+      React.createElement('div', {style:{background:C.card,borderRadius:16,padding:24,width:'100%',maxWidth:400,border:'1px solid '+C.cardBorder,maxHeight:'90vh',overflowY:'auto'}},
+        React.createElement('div', {style:{fontWeight:700,fontSize:16,marginBottom:16}}, '🍾 Log Bottling Run'),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Lot / Tank #'),
+            React.createElement('input', {value:form.lot, placeholder:'e.g. CB-24-001', onChange:e=>setForm(f=>({...f,lot:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Date'),
+            React.createElement('input', {type:'date', value:form.date, onChange:e=>setForm(f=>({...f,date:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          )
+        ),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Vintage'),
+            React.createElement('input', {value:form.vintage, placeholder:'2024', onChange:e=>setForm(f=>({...f,vintage:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Varietal'),
+            React.createElement('input', {value:form.varietal, placeholder:'Pinot Noir', onChange:e=>setForm(f=>({...f,varietal:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          )
+        ),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Bottle Size'),
+        React.createElement('select', {value:form.bottleSize, onChange:e=>setForm(f=>({...f,bottleSize:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:12,outline:'none',cursor:'pointer'}},
+          BOTTLE_SIZES.map(s=>React.createElement('option',{key:s.k,value:s.k},s.l))
+        ),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Cases Produced'),
+            React.createElement('input', {type:'number', value:form.casesProduced, placeholder:'0', onChange:e=>setForm(f=>({...f,casesProduced:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Bottles / Case'),
+            React.createElement('input', {type:'number', value:form.bottlesPerCase, placeholder:'12', onChange:e=>setForm(f=>({...f,bottlesPerCase:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          )
+        ),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Label Name (optional)'),
+        React.createElement('input', {value:form.label, placeholder:'Reserve Pinot Noir 2024', onChange:e=>setForm(f=>({...f,label:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:12,outline:'none',boxSizing:'border-box'}}),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Notes'),
+        React.createElement('input', {value:form.notes, placeholder:'Cork supplier, fill level, QC notes...', onChange:e=>setForm(f=>({...f,notes:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:20,outline:'none',boxSizing:'border-box'}}),
+        React.createElement('div', {style:{display:'flex',gap:10}},
+          React.createElement('button', {onClick:addRun,
+            style:{flex:1,background:C.accent,border:'none',borderRadius:10,padding:12,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}
+          }, 'Log Run'),
+          React.createElement('button', {onClick:()=>setShowAdd(false),
+            style:{flex:1,background:C.bg,border:'1px solid '+C.cardBorder,borderRadius:10,padding:12,color:C.textMuted,fontSize:13,fontWeight:700,cursor:'pointer'}
+          }, 'Cancel')
+        )
+      )
+    )
+  );
+};
+
 const DryGoodsScreen = () => {
   const CATEGORIES = [
     {k:'so2',    l:'SO₂',         unit:'g',   icon:'🧪'},
@@ -1971,10 +2131,10 @@ const WorkOrdersScreen = ({lots, members}) => {
 
 const ToolsScreen = ({lots, onSelect, members}) => {
   const [tab,setTab]=useState("so2");
-  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"}];
+  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"},{k:"case",l:"🍾 Case Goods"}];
   return(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:2}}, tabs.map(t=>(
         React.createElement("button", {key: t.k, onClick: ()=>setTab(t.k), style: {background:tab===t.k?C.accent:C.card,border:`1px solid ${tab===t.k?C.accent:C.cardBorder}`,color:tab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}, t.l)
-      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null)));
+      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, null)));
 };
 
 /* ── BARREL MAP inside Tools ── */
