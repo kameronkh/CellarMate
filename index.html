@@ -1353,6 +1353,171 @@ const BrixSugar = () => {
 
 /* ── TOOLS SCREEN ── */
 
+
+const FermentationScreen = ({lots}) => {
+  const activeLots = lots ? lots.filter(l => l.status !== 'done' && l.status !== 'bottled') : [];
+
+  const [selLotId, setSelLotId] = React.useState(() => activeLots.length > 0 ? String(activeLots[0].id) : '');
+  const [readings, setReadings] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('cm_ferm_readings') || '{}'); } catch(e) { return {}; }
+  });
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({date: new Date().toISOString().slice(0,10), brix:'', temp:'', notes:''});
+
+  React.useEffect(() => {
+    try { localStorage.setItem('cm_ferm_readings', JSON.stringify(readings)); } catch(e) {}
+  }, [readings]);
+
+  const lotReadings = selLotId ? (readings[selLotId] || []).slice().sort((a,b) => a.date.localeCompare(b.date)) : [];
+  const selLot = lots ? lots.find(l => String(l.id) === selLotId) : null;
+
+  const addReading = () => {
+    if (!selLotId || (!form.brix && !form.temp)) return;
+    const r = {date: form.date, brix: form.brix ? Number(form.brix) : null, temp: form.temp ? Number(form.temp) : null, notes: form.notes.trim(), id: Date.now()};
+    setReadings(prev => ({...prev, [selLotId]: [...(prev[selLotId]||[]), r]}));
+    setForm(f => ({...f, brix:'', temp:'', notes:''}));
+    setShowAdd(false);
+  };
+
+  const delReading = (id) => setReadings(prev => ({...prev, [selLotId]: (prev[selLotId]||[]).filter(r => r.id !== id)}));
+
+  const renderChart = (data, key, color, unit, label) => {
+    const vals = data.map(r => r[key]).filter(v => v !== null && v !== undefined);
+    if (vals.length < 2) return null;
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const range = max - min || 1;
+    const W = 320, H = 100, PAD = 8;
+    const pts = data.filter(r => r[key] !== null && r[key] !== undefined).map((r, i, arr) => {
+      const x = PAD + (i / Math.max(arr.length-1, 1)) * (W - PAD*2);
+      const y = PAD + (1 - (r[key] - min) / range) * (H - PAD*2);
+      return [x, y, r[key], r.date];
+    });
+    const polyline = pts.map(p => p[0]+','+p[1]).join(' ');
+    return React.createElement('div', {style:{marginBottom:16}},
+      React.createElement('div', {style:{fontSize:11,fontWeight:700,color:color,marginBottom:4,letterSpacing:0.6,textTransform:'uppercase'}},
+        label + '  ' + vals[vals.length-1] + unit + '  (min:' + min + unit + ' max:' + max + unit + ')'
+      ),
+      React.createElement('svg', {
+        width: W, height: H, style:{display:'block',overflow:'visible'},
+        viewBox: '0 0 '+W+' '+H
+      },
+        React.createElement('line', {x1:PAD,y1:PAD,x2:PAD,y2:H-PAD,stroke:C.cardBorder,strokeWidth:1}),
+        React.createElement('line', {x1:PAD,y1:H-PAD,x2:W-PAD,y2:H-PAD,stroke:C.cardBorder,strokeWidth:1}),
+        React.createElement('polygon', {
+          points: (PAD+','+( H-PAD)) + ' ' + polyline + ' ' + ((W-PAD)+','+(H-PAD)),
+          fill: color+'22', stroke:'none'
+        }),
+        React.createElement('polyline', {points: polyline, fill:'none', stroke: color, strokeWidth:2, strokeLinejoin:'round', strokeLinecap:'round'}),
+        pts.map((p,i) => React.createElement('circle', {key:i, cx:p[0], cy:p[1], r:3, fill:color, stroke:C.card, strokeWidth:1.5}))
+      )
+    );
+  };
+
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', {style:{marginBottom:12}},
+      React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Wine Lot'),
+      React.createElement('select', {
+        value: selLotId,
+        onChange: e => setSelLotId(e.target.value),
+        style:{width:'100%',background:C.card,border:'1px solid '+C.cardBorder,color:C.text,
+               borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',cursor:'pointer'}
+      },
+        lots && lots.map(l => React.createElement('option', {key:l.id, value:String(l.id)}, l.name + ' (' + (l.vintage||'—') + ')'))
+      )
+    ),
+
+    React.createElement('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}},
+      React.createElement('div', {style:{fontSize:12,color:C.textDim}},
+        lotReadings.length + ' reading' + (lotReadings.length !== 1 ? 's' : '')
+        + (lotReadings.length > 0 ? ' · Last: ' + new Date(lotReadings[lotReadings.length-1].date + 'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '')
+      ),
+      React.createElement('button', {
+        onClick: () => setShowAdd(true),
+        style:{background:C.accent,border:'none',borderRadius:8,padding:'7px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}
+      }, '+ Reading')
+    ),
+
+    selLot && lotReadings.length > 0 && React.createElement(Card, null,
+      renderChart(lotReadings, 'brix', C.accentLight, '°Bx', 'Brix'),
+      renderChart(lotReadings, 'temp', C.teal, '°F', 'Temperature')
+    ),
+
+    selLot && lotReadings.length === 0 && React.createElement('div', {style:{textAlign:'center',color:C.textDim,padding:'32px 0',fontSize:13}},
+      'No readings yet. Add the first one to start tracking fermentation! 🍇'
+    ),
+
+    lotReadings.length > 0 && React.createElement('div', {style:{marginTop:12}},
+      React.createElement('div', {style:{fontSize:11,fontWeight:700,color:C.textDim,marginBottom:8,letterSpacing:0.8,textTransform:'uppercase'}}, 'Log'),
+      lotReadings.slice().reverse().map(r =>
+        React.createElement('div', {key:r.id, style:{display:'flex',gap:8,alignItems:'center',padding:'8px 0',borderBottom:'1px solid '+C.cardBorder+'44',fontSize:12}},
+          React.createElement('span', {style:{color:C.textDim,minWidth:72}},
+            new Date(r.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})
+          ),
+          r.brix !== null && React.createElement('span', {style:{color:C.accentLight,fontWeight:700,minWidth:60}}, r.brix + '°Bx'),
+          r.temp !== null && React.createElement('span', {style:{color:C.teal,fontWeight:700,minWidth:52}}, r.temp + '°F'),
+          r.notes && React.createElement('span', {style:{color:C.textMuted,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, r.notes),
+          React.createElement('button', {
+            onClick: () => delReading(r.id),
+            style:{background:'transparent',border:'none',color:C.textDim,cursor:'pointer',padding:'2px 6px',fontSize:11,flexShrink:0}
+          }, '✕')
+        )
+      )
+    ),
+
+    showAdd && React.createElement('div', {
+      style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}
+    },
+      React.createElement('div', {style:{background:C.card,borderRadius:16,padding:24,width:'100%',maxWidth:380,border:'1px solid '+C.cardBorder}},
+        React.createElement('div', {style:{fontWeight:700,fontSize:16,marginBottom:16}}, '📊 Add Reading'),
+
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Date'),
+        React.createElement('input', {
+          type:'date', value:form.date,
+          onChange:e=>setForm(f=>({...f,date:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:12,outline:'none',boxSizing:'border-box'}
+        }),
+
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Brix (°Bx)'),
+            React.createElement('input', {
+              type:'number', step:'0.1', value:form.brix, placeholder:'e.g. 24.5',
+              onChange:e=>setForm(f=>({...f,brix:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}
+            })
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Temp (°F)'),
+            React.createElement('input', {
+              type:'number', step:'0.5', value:form.temp, placeholder:'e.g. 78',
+              onChange:e=>setForm(f=>({...f,temp:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}
+            })
+          )
+        ),
+
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Notes'),
+        React.createElement('input', {
+          value:form.notes, placeholder:'Cap punched, added nutrients...',
+          onChange:e=>setForm(f=>({...f,notes:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:20,outline:'none',boxSizing:'border-box'}
+        }),
+
+        React.createElement('div', {style:{display:'flex',gap:10}},
+          React.createElement('button', {
+            onClick:addReading,
+            style:{flex:1,background:C.accent,border:'none',borderRadius:10,padding:12,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}
+          }, 'Save Reading'),
+          React.createElement('button', {
+            onClick:()=>setShowAdd(false),
+            style:{flex:1,background:C.bg,border:'1px solid '+C.cardBorder,borderRadius:10,padding:12,color:C.textMuted,fontSize:13,fontWeight:700,cursor:'pointer'}
+          }, 'Cancel')
+        )
+      )
+    )
+  );
+};
+
 const WorkOrdersScreen = ({lots, members}) => {
   members = members || [{id:1,name:'Kameron',initials:'KT',color:'#8b5cf6'},{id:2,name:'Team Member',initials:'TM',color:'#14b8a6'}];
   const [orders, setOrders] = React.useState(() => {
@@ -1599,10 +1764,10 @@ const WorkOrdersScreen = ({lots, members}) => {
 
 const ToolsScreen = ({lots, onSelect, members}) => {
   const [tab,setTab]=useState("so2");
-  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"}];
+  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"}];
   return(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:2}}, tabs.map(t=>(
         React.createElement("button", {key: t.k, onClick: ()=>setTab(t.k), style: {background:tab===t.k?C.accent:C.card,border:`1px solid ${tab===t.k?C.accent:C.cardBorder}`,color:tab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}, t.l)
-      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members})));
+      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots})));
 };
 
 /* ── BARREL MAP inside Tools ── */
