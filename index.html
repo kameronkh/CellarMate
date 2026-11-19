@@ -682,6 +682,10 @@ const WINERIES_KEY      = 'cellarmate_wineries';
 const SUPA_URL = 'https://qvfelrqijvvxpookotvr.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2ZmVscnFpanZ2eHBvb2tvdHZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NjE0MzAsImV4cCI6MjA5MDMzNzQzMH0.FEdySBJBVbDeNhMpds7vdEiqdbd45xKRQMvWT0PNI7M';
 const supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+async function getSupaProfile(userId) {
+  const { data } = await supa.from('profiles').select('*').eq('id', userId).single();
+  return data;
+}
 
 function simpleHash(str) {
   let h = 5381;
