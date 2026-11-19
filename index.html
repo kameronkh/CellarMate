@@ -1177,7 +1177,7 @@ const ChaptalCalc = () => {
 };
 
 /* ── WINE BLENDING CALCULATOR (multi-lot) ── */
-const BlendCalc = () => {
+const BlendCalc = ({onResult}) => {
   const nextId = useRef(3);
   const [components,setComponents]=useState([
     {id:1,name:"Lot A",vol:"60",ta:"5.8",ph:"3.65",so2:"32",alc:"13.5"},
@@ -1207,6 +1207,7 @@ const BlendCalc = () => {
       parts:valid.map(c=>({...c,pct:(parseFloat(c.vol)/totalVol*100).toFixed(1)})),
     };
   },[components]);
+  React.useEffect(()=>{if(onResult)onResult(res);},[res,onResult]);
 
   const ROW_COLORS=[C.blue,C.teal,C.accent,C.green,C.orange,C.yellow,C.red,"#ec4899"];
   const NI=({val,set,ph})=>(
@@ -1233,6 +1234,87 @@ const BlendCalc = () => {
 
 
 /* ── KMBS ADDITION CALCULATOR ── */
+
+const BlendWrapper = () => {
+  const [saved, setSaved] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('cm_blends') || '[]'); } catch(e) { return []; }
+  });
+  const [blendName, setBlendName] = React.useState('');
+  const [blendRef, setBlendRef] = React.useState(null);
+  const [showSaved, setShowSaved] = React.useState(false);
+  React.useEffect(() => {
+    try { localStorage.setItem('cm_blends', JSON.stringify(saved)); } catch(e) {}
+  }, [saved]);
+  const saveBlend = () => {
+    if (!blendRef || !blendName.trim()) return;
+    const snap = {
+      id: Date.now(),
+      name: blendName.trim(),
+      date: new Date().toISOString().slice(0,10),
+      state: blendRef,
+    };
+    setSaved(prev => [snap, ...prev]);
+    setBlendName('');
+  };
+  const deleteBlend = (id) => setSaved(prev => prev.filter(b => b.id !== id));
+  return React.createElement(React.Fragment, null,
+    saved.length > 0 && React.createElement('div', {style:{marginBottom:16}},
+      React.createElement('div', {
+        onClick:()=>setShowSaved(s=>!s),
+        style:{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',
+          background:C.card,border:'1px solid '+C.cardBorder,borderRadius:10,padding:'10px 14px',marginBottom:showSaved?8:0}
+      },
+        React.createElement('div', {style:{fontSize:12,fontWeight:700,color:C.text}},
+          '📋 Saved Blends ('+saved.length+')'
+        ),
+        React.createElement('div', {style:{fontSize:11,color:C.textDim}}, showSaved ? '▲ Hide' : '▼ Show')
+      ),
+      showSaved && saved.map(b => React.createElement('div', {
+        key:b.id,
+        style:{background:C.card,border:'1px solid '+C.cardBorder,borderRadius:10,padding:'10px 14px',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center'}
+      },
+        React.createElement('div', null,
+          React.createElement('div', {style:{fontWeight:700,fontSize:14,color:C.text}}, b.name),
+          React.createElement('div', {style:{fontSize:11,color:C.textDim,marginTop:2}}, b.date +
+            (b.state && b.state.totalVol ? ' · ' + b.state.totalVol + ' gal total' : '') +
+            (b.state && b.state.parts ? ' · ' + b.state.parts.length + ' components' : '')
+          ),
+          b.state && b.state.parts && React.createElement('div', {style:{display:'flex',gap:4,marginTop:6,flexWrap:'wrap'}},
+            b.state.parts.map((p,i) => {
+              const colors=['#8b5cf6','#3b82f6','#22c55e','#f97316','#eab308','#ef4444','#14b8a6'];
+              return React.createElement('div', {key:i,
+                style:{fontSize:10,background:colors[i%colors.length]+'22',color:colors[i%colors.length],
+                  borderRadius:4,padding:'1px 6px',fontWeight:600}
+              }, p.name+' '+p.pct+'%');
+            })
+          )
+        ),
+        React.createElement('button', {
+          onClick:()=>deleteBlend(b.id),
+          style:{background:'transparent',border:'none',color:C.textDim,cursor:'pointer',padding:'4px 8px',fontSize:12}
+        }, '✕')
+      ))
+    ),
+    React.createElement(BlendCalc, {onResult: (res) => setBlendRef(res)}),
+    React.createElement('div', {style:{display:'flex',gap:8,marginTop:12,alignItems:'center'}},
+      React.createElement('input', {
+        value:blendName,
+        onChange:e=>setBlendName(e.target.value),
+        placeholder:'Name this blend (e.g. Pinot Blend 2024)...',
+        style:{flex:1,background:C.card,border:'1px solid '+C.cardBorder,color:C.text,
+          borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none'}
+      }),
+      React.createElement('button', {
+        onClick:saveBlend,
+        disabled:!blendName.trim(),
+        style:{background:blendName.trim()?C.accent:'#2d1f5e',border:'none',borderRadius:8,
+          padding:'9px 16px',color:blendName.trim()?'#fff':C.textDim,fontSize:12,fontWeight:700,
+          cursor:blendName.trim()?'pointer':'default',whiteSpace:'nowrap'}
+      }, '💾 Save Blend')
+    )
+  );
+};
+
 const KMBSCalc = () => {
   const [vol,setVol]=useState("60");
   const [unit,setUnit]=useState("gal");
@@ -2313,7 +2395,7 @@ const ToolsScreen = ({lots, onSelect, members}) => {
   const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"},{k:"case",l:"🍾 Case Goods"},{k:"cogs",l:"💰 COGS"}];
   return(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:2}}, tabs.map(t=>(
         React.createElement("button", {key: t.k, onClick: ()=>setTab(t.k), style: {background:tab===t.k?C.accent:C.card,border:`1px solid ${tab===t.k?C.accent:C.cardBorder}`,color:tab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}, t.l)
-      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, null), tab==="cogs"&&React.createElement(COGSScreen, null)));
+      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendWrapper, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, null), tab==="cogs"&&React.createElement(COGSScreen, null)));
 };
 
 /* ── BARREL MAP inside Tools ── */
