@@ -1617,7 +1617,7 @@ const COGSScreen = () => {
   );
 };
 
-const CaseGoodsScreen = () => {
+const CaseGoodsScreen = ({lots=[]}) => {
   const BOTTLE_SIZES = [
     {k:'750ml', l:'750 mL'},
     {k:'375ml', l:'375 mL (Half)'},
@@ -1629,7 +1629,26 @@ const CaseGoodsScreen = () => {
     try { return JSON.parse(localStorage.getItem('cm_casegoods') || '[]'); } catch(e) { return []; }
   });
   const [showAdd, setShowAdd] = React.useState(false);
-  const [form, setForm] = React.useState({lot:'', vintage:'', varietal:'', bottleSize:'750ml', casesProduced:'', bottlesPerCase:'12', label:'', notes:'', date:new Date().toISOString().slice(0,10)});
+  const lotOptions = React.useMemo(() =>
+    lots.filter(l => l.name && l.gallons > 0).sort((a,b) => a.name.localeCompare(b.name))
+  , [lots]);
+  const handleLotChange = (lotName) => {
+    const found = lotOptions.find(l => l.name === lotName);
+    if (found) {
+      setForm(f => ({...f, lot: lotName,
+        vintage: found.vintage ? String(found.vintage) : f.vintage,
+        varietal: found.varietal || f.varietal,
+        vineyard: found.vineyard || f.vineyard,
+        clone: found.clone || f.clone,
+        block: found.block || f.block,
+        lotGallons: found.gallons ? String(found.gallons) : f.lotGallons,
+      }));
+    } else {
+      setForm(f => ({...f, lot: lotName}));
+    }
+  };
+  const EMPTY_FORM = {lot:'', vintage:'', varietal:'', vineyard:'', clone:'', block:'', lotGallons:'', bottleSize:'750ml', casesProduced:'', bottlesPerCase:'12', label:'', notes:'', date:new Date().toISOString().slice(0,10)};
+  const [form, setForm] = React.useState(EMPTY_FORM);
   React.useEffect(() => {
     try { localStorage.setItem('cm_casegoods', JSON.stringify(runs)); } catch(e) {}
   }, [runs]);
@@ -1637,12 +1656,15 @@ const CaseGoodsScreen = () => {
     if (!form.lot.trim() || !form.casesProduced) return;
     setRuns(prev => [...prev, {
       id: Date.now(), lot: form.lot.trim(), vintage: form.vintage.trim(),
-      varietal: form.varietal.trim(), bottleSize: form.bottleSize,
+      varietal: form.varietal.trim(), vineyard: form.vineyard.trim(),
+      clone: form.clone.trim(), block: form.block.trim(),
+      lotGallons: form.lotGallons ? Number(form.lotGallons) : 0,
+      bottleSize: form.bottleSize,
       casesProduced: Number(form.casesProduced),
       bottlesPerCase: Number(form.bottlesPerCase) || 12,
       label: form.label.trim(), notes: form.notes.trim(), date: form.date,
     }]);
-    setForm({lot:'', vintage:'', varietal:'', bottleSize:'750ml', casesProduced:'', bottlesPerCase:'12', label:'', notes:'', date:new Date().toISOString().slice(0,10)});
+    setForm(EMPTY_FORM);
     setShowAdd(false);
   };
   const deleteRun = (id) => setRuns(prev => prev.filter(r => r.id !== id));
@@ -1679,6 +1701,9 @@ const CaseGoodsScreen = () => {
           React.createElement('div', null,
             React.createElement('div', {style:{fontWeight:700,fontSize:15,color:C.text}},
               run.lot+(run.vintage?' · '+run.vintage:'')+(run.varietal?' · '+run.varietal:'')
+            ),
+            (run.vineyard||run.clone||run.block)&&React.createElement('div', {style:{fontSize:11,color:C.teal,marginTop:3}},
+              [run.vineyard, run.clone&&('Clone '+run.clone), run.block&&('Blk '+run.block)].filter(Boolean).join(' · ')
             ),
             run.label&&React.createElement('div', {style:{fontSize:11,color:C.textDim,marginTop:2}}, '🏷 '+run.label)
           ),
@@ -1719,8 +1744,12 @@ const CaseGoodsScreen = () => {
         React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}},
           React.createElement('div', null,
             React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Lot / Tank #'),
-            React.createElement('input', {value:form.lot, placeholder:'e.g. CB-24-001', onChange:e=>setForm(f=>({...f,lot:e.target.value})),
-              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+            React.createElement('select', {value:form.lot, onChange:e=>handleLotChange(e.target.value),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box',cursor:'pointer'}},
+              React.createElement('option',{value:''},'— Select lot —'),
+              lotOptions.map(l=>React.createElement('option',{key:l.id,value:l.name},l.name+(l.vintage?' ('+l.vintage+')':'')+(l.varietal?' – '+l.varietal:''))),
+              form.lot && !lotOptions.find(l=>l.name===form.lot) && React.createElement('option',{value:form.lot},form.lot)
+            )
           ),
           React.createElement('div', null,
             React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Date'),
@@ -1737,6 +1766,23 @@ const CaseGoodsScreen = () => {
           React.createElement('div', null,
             React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Varietal'),
             React.createElement('input', {value:form.varietal, placeholder:'Pinot Noir', onChange:e=>setForm(f=>({...f,varietal:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          )
+        ),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Vineyard'),
+            React.createElement('input', {value:form.vineyard, placeholder:'Estate', onChange:e=>setForm(f=>({...f,vineyard:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Clone'),
+            React.createElement('input', {value:form.clone, placeholder:'Pommard', onChange:e=>setForm(f=>({...f,clone:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Block'),
+            React.createElement('input', {value:form.block, placeholder:'Block 6', onChange:e=>setForm(f=>({...f,block:e.target.value})),
               style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
           )
         ),
@@ -2652,7 +2698,7 @@ const ToolsScreen = ({lots, onSelect, members}) => {
   const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"},{k:"case",l:"🍾 Case Goods"},{k:"cogs",l:"💰 COGS"},{k:"qr",l:"📷 QR Scan"},{k:"ttb",l:"📋 TTB Report"}];
   return(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:2}}, tabs.map(t=>(
         React.createElement("button", {key: t.k, onClick: ()=>setTab(t.k), style: {background:tab===t.k?C.accent:C.card,border:`1px solid ${tab===t.k?C.accent:C.cardBorder}`,color:tab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}, t.l)
-      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendWrapper, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, null), tab==="cogs"&&React.createElement(COGSScreen, null),
+      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendWrapper, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, {lots: lots}), tab==="cogs"&&React.createElement(COGSScreen, null),
     tab==="qr"&&React.createElement(QRScanScreen, {lots: lots}),
     tab==="ttb"&&React.createElement(TTBScreen, {lots: lots, activeWinery: activeWinery})));
 };
