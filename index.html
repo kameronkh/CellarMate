@@ -2146,6 +2146,259 @@ const FermentationScreen = ({lots}) => {
   );
 };
 
+
+
+const TTBScreen = ({lots, activeWinery}) => {
+  const [year, setYear]     = React.useState(new Date().getFullYear().toString());
+  const [period, setPeriod] = React.useState('annual');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  // Pull lot data for the selected winery/year
+  const wineryLots = React.useMemo(() => {
+    if (!lots) return [];
+    return lots.filter(l => !l.vintage || String(l.vintage) === year || year === 'all');
+  }, [lots, year]);
+
+  // Aggregate by varietal
+  const byVarietal = React.useMemo(() => {
+    const map = {};
+    wineryLots.forEach(l => {
+      const v = l.varietal || 'Unknown';
+      if (!map[v]) map[v] = {varietal:v, totalGal:0, barrels:0, lots:[]};
+      map[v].totalGal += Number(l.volume)||0;
+      map[v].barrels  += 1;
+      map[v].lots.push(l);
+    });
+    return Object.values(map).sort((a,b)=>b.totalGal-a.totalGal);
+  }, [wineryLots]);
+
+  const totalGal   = byVarietal.reduce((s,v)=>s+v.totalGal,0);
+  const totalBarrels = wineryLots.length;
+
+  // Case goods totals
+  const caseGoods = React.useMemo(()=>{
+    try{return JSON.parse(localStorage.getItem('cm_casegoods')||'[]');}catch(e){return [];}
+  },[]);
+  const caseLots = caseGoods.filter(c=>!year||year==='all'||String(c.date||'').startsWith(year));
+  const totalCases   = caseLots.reduce((s,c)=>s+(Number(c.cases)||0),0);
+  const totalBottles = caseLots.reduce((s,c)=>s+(Number(c.bottles)||0),0);
+  const totalBotGal  = (totalBottles*0.02604).toFixed(1);
+
+  const fmtGal = n => n.toLocaleString('en-US',{maximumFractionDigits:1}) + ' gal';
+  const fmtN   = n => n.toLocaleString('en-US');
+
+  const Row = ({label, val, sub, accent}) => React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'10px 0',borderBottom:'1px solid '+C.cardBorder}},
+    React.createElement('div',null,
+      React.createElement('div',{style:{fontSize:13,color:C.text}},label),
+      sub && React.createElement('div',{style:{fontSize:11,color:C.textDim,marginTop:2}},sub)
+    ),
+    React.createElement('div',{style:{fontSize:14,fontWeight:700,color:accent||C.accentLight}},val)
+  );
+
+  return React.createElement(React.Fragment, null,
+    // Header controls
+    React.createElement('div',{style:{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}},
+      React.createElement('div',{style:{fontSize:13,color:C.textDim,marginRight:4}},'Vintage / Year:'),
+      React.createElement('select',{value:year,onChange:e=>setYear(e.target.value),
+        style:{background:C.card,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'7px 12px',fontSize:12,outline:'none',cursor:'pointer'}},
+        React.createElement('option',{value:'all'},'All Years'),
+        [2020,2021,2022,2023,2024,2025,2026].map(y=>React.createElement('option',{key:y,value:String(y)},String(y)))
+      ),
+      React.createElement('div',{style:{fontSize:11,color:C.textDim,marginLeft:8}},
+        'Report as of ' + new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})
+      )
+    ),
+    // Summary card
+    React.createElement('div',{style:{background:C.card,border:'1px solid '+C.cardBorder,borderRadius:12,padding:16,marginBottom:16}},
+      React.createElement('div',{style:{fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:0.8,textTransform:'uppercase',marginBottom:12}},
+        'TTB Report Summary — ' + (activeWinery||{name:'Winery'}).name
+      ),
+      React.createElement(Row,{label:'Total Wine in Cooperage',val:fmtGal(totalGal),sub:totalBarrels+' active lots/barrels'}),
+      React.createElement(Row,{label:'Cases Bottled',val:fmtN(totalCases)+' cs',sub:fmtN(totalBottles)+' bottles ('+totalBotGal+' gal equiv.)',accent:C.green}),
+      React.createElement(Row,{label:'Varietals Produced',val:byVarietal.length,accent:C.blue}),
+      React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'10px 0'}},
+        React.createElement('div',{style:{fontSize:13,color:C.text}},'Estimated Proof Gallons (@ 12% avg)'),
+        React.createElement('div',{style:{fontSize:14,fontWeight:700,color:C.orange}},(totalGal*0.24).toLocaleString('en-US',{maximumFractionDigits:1})+' pg')
+      )
+    ),
+    // Varietal breakdown
+    byVarietal.length > 0 && React.createElement('div',{style:{background:C.card,border:'1px solid '+C.cardBorder,borderRadius:12,padding:16,marginBottom:16}},
+      React.createElement('div',{style:{fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:0.8,textTransform:'uppercase',marginBottom:12}},
+        'Schedule B — Wine in Bonded Premises'
+      ),
+      React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:'4px 16px',alignItems:'center',marginBottom:8}},
+        React.createElement('div',{style:{fontSize:10,color:C.textDim,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6}},'Varietal'),
+        React.createElement('div',{style:{fontSize:10,color:C.textDim,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6,textAlign:'right'}},'Lots'),
+        React.createElement('div',{style:{fontSize:10,color:C.textDim,fontWeight:700,textTransform:'uppercase',letterSpacing:0.6,textAlign:'right'}},'Gallons')
+      ),
+      byVarietal.map(v=>React.createElement('div',{key:v.varietal,style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:'4px 16px',alignItems:'center',padding:'8px 0',borderTop:'1px solid '+C.cardBorder}},
+        React.createElement('div',{style:{fontSize:13,color:C.text}},v.varietal),
+        React.createElement('div',{style:{fontSize:13,color:C.textMuted,textAlign:'right'}},v.barrels),
+        React.createElement('div',{style:{fontSize:13,fontWeight:600,color:C.accentLight,textAlign:'right'}},fmtGal(v.totalGal))
+      )),
+      React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:'4px 16px',alignItems:'center',padding:'10px 0',borderTop:'2px solid '+C.accent,marginTop:4}},
+        React.createElement('div',{style:{fontSize:13,fontWeight:700,color:C.text}},'TOTAL'),
+        React.createElement('div',{style:{fontSize:13,fontWeight:700,color:C.text,textAlign:'right'}},totalBarrels),
+        React.createElement('div',{style:{fontSize:14,fontWeight:700,color:C.accent,textAlign:'right'}},fmtGal(totalGal))
+      )
+    ),
+    // Case goods schedule
+    caseGoods.length > 0 && React.createElement('div',{style:{background:C.card,border:'1px solid '+C.cardBorder,borderRadius:12,padding:16,marginBottom:16}},
+      React.createElement('div',{style:{fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:0.8,textTransform:'uppercase',marginBottom:12}},
+        'Schedule C — Bottled Wine'
+      ),
+      caseLots.slice().reverse().map(c=>React.createElement('div',{key:c.id,style:{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid '+C.cardBorder,fontSize:13}},
+        React.createElement('div',null,
+          React.createElement('div',{style:{color:C.text,fontWeight:600}},c.lot||'Unknown Lot'),
+          React.createElement('div',{style:{color:C.textDim,fontSize:11,marginTop:2}},c.date||'')
+        ),
+        React.createElement('div',{style:{textAlign:'right'}},
+          React.createElement('div',{style:{color:C.green,fontWeight:700}},(c.cases||0)+' cs'),
+          React.createElement('div',{style:{color:C.textDim,fontSize:11}},(c.bottles||0)+' btl')
+        )
+      )),
+      caseLots.length === 0 && React.createElement('div',{style:{color:C.textDim,fontSize:13,textAlign:'center',padding:'16px 0'}}, 'No bottling records for this year.')
+    ),
+    // Print note
+    React.createElement('div',{style:{fontSize:11,color:C.textDim,textAlign:'center',padding:'8px 0'}},
+      'This report is for internal reference only. Official TTB Form 5120.17 must be filed via MyTTB.gov.'
+    )
+  );
+};
+
+const QRScanScreen = ({lots}) => {
+  const [scanning, setScanning] = React.useState(false);
+  const [result, setResult]     = React.useState(null);
+  const [error, setError]       = React.useState('');
+  const [manualId, setManualId] = React.useState('');
+  const [lotInfo, setLotInfo]   = React.useState(null);
+  const videoRef  = React.useRef(null);
+  const streamRef = React.useRef(null);
+  const intervalRef = React.useRef(null);
+
+  const stopScan = () => {
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t=>t.stop()); streamRef.current=null; }
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current=null; }
+    setScanning(false);
+  };
+
+  React.useEffect(() => () => stopScan(), []);
+
+  const startScan = async () => {
+    setError(''); setResult(null); setLotInfo(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      streamRef.current = stream;
+      setScanning(true);
+      setTimeout(() => {
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      }, 100);
+      // Poll for QR via BarcodeDetector if available
+      if ('BarcodeDetector' in window) {
+        const bd = new BarcodeDetector({formats:['qr_code','code_128','code_39','ean_13']});
+        intervalRef.current = setInterval(async () => {
+          if (!videoRef.current) return;
+          try {
+            const codes = await bd.detect(videoRef.current);
+            if (codes.length > 0) {
+              const val = codes[0].rawValue;
+              stopScan();
+              setResult(val);
+              lookupLot(val);
+            }
+          } catch(e) {}
+        }, 500);
+      } else {
+        setError('BarcodeDetector not supported in this browser. Use manual entry below.');
+      }
+    } catch(e) {
+      setError('Camera access denied or unavailable: ' + e.message);
+      setScanning(false);
+    }
+  };
+
+  const lookupLot = (val) => {
+    if (!lots) return;
+    const found = lots.find(l =>
+      l.id === val || l.id === Number(val) ||
+      (l.barrel && String(l.barrel) === val) ||
+      (l.name && l.name.toLowerCase() === val.toLowerCase()) ||
+      String(l.id).includes(val) || (l.barrel && String(l.barrel).includes(val))
+    );
+    setLotInfo(found || null);
+    if (!found) setError('No lot matched "' + val + '". Try manual lookup below.');
+    else setError('');
+  };
+
+  const handleManual = () => { if(manualId.trim()){ setResult(manualId.trim()); lookupLot(manualId.trim()); } };
+
+  const statusColors = {active:C.green, filtered:C.teal, bottled:C.blue, sold:C.textDim};
+
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', {style:{fontSize:13,color:C.textDim,marginBottom:16}},
+      'Scan a QR code or barcode on a barrel/tank to pull up lot details instantly.'
+    ),
+    // Camera panel
+    React.createElement('div', {style:{background:C.card,border:'1px solid '+C.cardBorder,borderRadius:12,padding:16,marginBottom:16}},
+      React.createElement('div', {style:{display:'flex',gap:8,marginBottom:12,alignItems:'center'}},
+        React.createElement('button', {
+          onClick: scanning ? stopScan : startScan,
+          style:{background:scanning?C.red:C.accent,border:'none',borderRadius:8,padding:'8px 18px',
+                 color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}
+        }, scanning ? '⏹ Stop Scanning' : '📷 Start Camera Scan'),
+        scanning && React.createElement('div', {style:{fontSize:12,color:C.yellow,animation:'pulse 1s infinite'}}, '● Scanning...')
+      ),
+      scanning && React.createElement('div', {style:{position:'relative',borderRadius:10,overflow:'hidden',background:'#000',maxWidth:400}},
+        React.createElement('video', {ref:videoRef, autoPlay:true, playsInline:true,
+          style:{width:'100%',display:'block',borderRadius:10}}),
+        React.createElement('div', {style:{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',
+          width:180,height:180,border:'2px solid '+C.accent,borderRadius:12,
+          boxShadow:'0 0 0 9999px rgba(0,0,0,0.4)',pointerEvents:'none'}})
+      ),
+      error && React.createElement('div', {style:{color:C.yellow,fontSize:12,marginTop:8}}, '⚠ ' + error)
+    ),
+    // Manual entry
+    React.createElement('div', {style:{background:C.card,border:'1px solid '+C.cardBorder,borderRadius:12,padding:16,marginBottom:16}},
+      React.createElement('div', {style:{fontSize:12,fontWeight:700,color:C.textDim,letterSpacing:0.8,textTransform:'uppercase',marginBottom:10}}, 'Manual Lookup'),
+      React.createElement('div', {style:{display:'flex',gap:8}},
+        React.createElement('input', {
+          value:manualId, onChange:e=>setManualId(e.target.value),
+          placeholder:'Enter lot ID, barrel #, or name...',
+          onKeyDown:e=>e.key==='Enter'&&handleManual(),
+          style:{flex:1,background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,
+                 borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}
+        }),
+        React.createElement('button', {onClick:handleManual,
+          style:{background:C.accent,border:'none',borderRadius:8,padding:'9px 16px',
+                 color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}, 'Lookup')
+      )
+    ),
+    // Result
+    result && React.createElement('div', {style:{background:C.card,border:'1px solid '+(lotInfo?C.accent:C.cardBorder),borderRadius:12,padding:16}},
+      React.createElement('div', {style:{fontSize:11,color:C.textDim,marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Scan Result'),
+      React.createElement('div', {style:{fontSize:14,fontWeight:700,color:C.text,marginBottom:12}}, result),
+      lotInfo ? React.createElement('div', null,
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+          [
+            ['Lot / Tank', lotInfo.name || lotInfo.id],
+            ['Varietal', lotInfo.varietal || '—'],
+            ['Vintage', lotInfo.vintage || '—'],
+            ['Volume', lotInfo.volume ? lotInfo.volume + ' gal' : '—'],
+            ['Barrel #', lotInfo.barrel || '—'],
+            ['Location', lotInfo.rack ? lotInfo.rack + (lotInfo.slot?' / '+lotInfo.slot:'') : '—'],
+            ['Status', lotInfo.status || 'active'],
+            ['Vineyard', lotInfo.vineyard || '—'],
+          ].map(([lbl,val]) => React.createElement('div', {key:lbl, style:{background:C.bg,borderRadius:8,padding:'8px 12px'}},
+            React.createElement('div', {style:{fontSize:10,color:C.textDim,marginBottom:2,textTransform:'uppercase',letterSpacing:0.6}}, lbl),
+            React.createElement('div', {style:{fontSize:13,fontWeight:600,
+              color: lbl==='Status' ? (statusColors[val]||C.text) : C.text}}, val)
+          ))
+        )
+      ) : React.createElement('div', {style:{color:C.textDim,fontSize:13}}, '— No matching lot found —')
+    )
+  );
+};
+
 const WorkOrdersScreen = ({lots, members}) => {
   members = members || [{id:1,name:'Kameron',initials:'KT',color:'#8b5cf6'},{id:2,name:'Team Member',initials:'TM',color:'#14b8a6'}];
   const [orders, setOrders] = React.useState(() => {
@@ -2186,6 +2439,8 @@ const WorkOrdersScreen = ({lots, members}) => {
   };
   const reopen = (id) => setOrders(prev => prev.map(o => o.id === id ? {...o, status:'pending', completedAt:null} : o));
   const remove  = (id) => setOrders(prev => prev.filter(o => o.id !== id));
+  const clearDone = () => { if(window.confirm('Remove all completed tasks?')) setOrders(prev=>prev.filter(o=>o.status!=='done')); };
+  const clearAll  = () => { if(window.confirm('Delete ALL tasks? This cannot be undone.')) setOrders([]); };
 
   const pColor  = {urgent:'#ef4444', normal:'#f59e0b', low:'#22c55e'};
   const pLabel  = {urgent:'🔴 Urgent', normal:'🟡 Normal', low:'🟢 Low'};
@@ -2215,7 +2470,9 @@ const WorkOrdersScreen = ({lots, members}) => {
       React.createElement('button', {
         onClick: () => setShowCreate(true),
         style:{background:C.accent,border:'none',borderRadius:8,padding:'7px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}
-      }, '+ New Task')
+      }, '+ New Task'),
+      React.createElement('button',{onClick:clearDone,style:{background:'transparent',border:'1px solid '+C.cardBorder,borderRadius:8,padding:'7px 12px',color:C.textMuted,fontSize:11,cursor:'pointer'}},'✓ Clear Done'),
+      React.createElement('button',{onClick:clearAll,style:{background:'transparent',border:'1px solid '+C.red+'66',borderRadius:8,padding:'7px 12px',color:C.red,fontSize:11,cursor:'pointer'}},'🗑 Clear All')
     ),
 
     // Filter tabs
@@ -2392,10 +2649,12 @@ const WorkOrdersScreen = ({lots, members}) => {
 
 const ToolsScreen = ({lots, onSelect, members}) => {
   const [tab,setTab]=useState("so2");
-  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"},{k:"case",l:"🍾 Case Goods"},{k:"cogs",l:"💰 COGS"}];
+  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"},{k:"case",l:"🍾 Case Goods"},{k:"cogs",l:"💰 COGS"},{k:"qr",l:"📷 QR Scan"},{k:"ttb",l:"📋 TTB Report"}];
   return(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:2}}, tabs.map(t=>(
         React.createElement("button", {key: t.k, onClick: ()=>setTab(t.k), style: {background:tab===t.k?C.accent:C.card,border:`1px solid ${tab===t.k?C.accent:C.cardBorder}`,color:tab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}, t.l)
-      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendWrapper, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, null), tab==="cogs"&&React.createElement(COGSScreen, null)));
+      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendWrapper, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, null), tab==="cogs"&&React.createElement(COGSScreen, null),
+    tab==="qr"&&React.createElement(QRScanScreen, {lots: lots}),
+    tab==="ttb"&&React.createElement(TTBScreen, {lots: lots, activeWinery: activeWinery})));
 };
 
 /* ── BARREL MAP inside Tools ── */
