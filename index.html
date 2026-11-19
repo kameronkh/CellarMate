@@ -447,7 +447,21 @@ const makeAlerts = (topDate, so2Date, malicDate) => ({
 const CELLAR_RACKS = ["EBS 1","EBS 2","EBS 3","EBS 4","EBS 5","EBS 6","EBS 7","EBS 8","EBS 9","EBS 10","EBS 11","EBS 12","EBS 13","OBAS 1","OBAS 2","OBAS 3","OBAS 4","OBAS 5","OBAS 6","OBAS 7","OBAS 8","OBAS 9","OBAS 10","OBS 5"];
 const SLOTS = ["A","B","C"];
 
-const SCREENS = { dash:"dash", log:"log", lots:"lots", detail:"detail", tools:"tools", alerts:"alerts", map:"map", transfer:"transfer", settings:"settings", report:"report", blocks:"blocks", superAdmin:"superAdmin" };
+const SCREENS = { dash:"dash", log:"log", lots:"lots", detail:"detail", tools:"tools", alerts:"alerts", map:"map", transfer:"transfer", settings:"settings", report:"report", blocks:"blocks", superAdmin:"superAdmin", trace:"trace" };const LIFECYCLE_STAGES=[
+  {k:"harvest",  icon:"🍇", label:"Harvest",   color:"#f97316"},
+  {k:"ferment",  icon:"🌡", label:"Ferment",   color:"#22d3ee"},
+  {k:"barrel",   icon:"🛢", label:"Barrel",    color:"#a78bfa"},
+  {k:"filtering",icon:"🔽", label:"Filtering", color:"#60a5fa"},
+  {k:"bottled",  icon:"🍾", label:"Bottled",   color:"#34d399"},
+  {k:"released", icon:"✅", label:"Released",  color:"#86efac"},
+];
+function inferLifecycle(lot){
+  if(lot.lifecycle) return lot.lifecycle;
+  if(lot.status==="active") return "ferment";
+  if(lot.status==="aging"||lot.status==="barrel") return "barrel";
+  if(lot.status==="done") return "bottled";
+  return "harvest";
+}
 
 const ROLES = {
   owner: { label:"Winemaker / Owner", level:4 },
@@ -876,8 +890,39 @@ const AlertBadge = ({alert}) => {
   return React.createElement("span", {style: {background:a.bg,color:a.color,fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:99,letterSpacing:.5}}, a.label);
 };
 const Dot = ({status}) => {
-  const colors={active:C.green,aging:C.blue,barrel:C.accentLight,done:C.textDim};
+  const colors={active:C.green,aging:C.blue,barrel:C.accentLight,done:C.textDim,filtering:"#60a5fa",bottled:"#34d399",released:"#86efac",harvest:"#f97316",ferment:C.teal};
   return React.createElement("span", {style: {display:"inline-block",width:8,height:8,borderRadius:"50%",background:colors[status]||C.textDim,marginRight:6,flexShrink:0}});
+};
+const LifecycleBar = ({lot, onStageChange}) => {
+  const current = inferLifecycle(lot);
+  const curIdx = LIFECYCLE_STAGES.findIndex(s=>s.k===current);
+  return React.createElement('div', {style:{marginTop:14,marginBottom:4}},
+    React.createElement('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',gap:2}},
+      LIFECYCLE_STAGES.map((s,i)=>{
+        const done = i < curIdx;
+        const active = i === curIdx;
+        const future = i > curIdx;
+        return React.createElement('div', {key:s.k, style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:onStageChange?'pointer':'default',opacity:future?0.4:1},
+          onClick: onStageChange ? ()=>onStageChange(s.k) : undefined},
+          React.createElement('div', {style:{
+            width:28,height:28,borderRadius:'50%',
+            background: active ? s.color : done ? C.teal : C.cardBorder,
+            border: active ? `2px solid ${s.color}` : `2px solid ${done?C.teal:C.cardBorder}`,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            fontSize:14,position:'relative',zIndex:1,
+            boxShadow: active ? `0 0 8px ${s.color}88` : 'none',
+            transition:'all 0.2s',
+          }}, s.icon),
+          React.createElement('div', {style:{fontSize:9,fontWeight:active?800:600,color:active?s.color:done?C.teal:C.textDim,letterSpacing:0.3,textAlign:'center',lineHeight:1.2}}, s.label)
+        );
+      })
+    ),
+    React.createElement('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:-18,paddingBottom:18,position:'relative',zIndex:0,paddingLeft:14,paddingRight:14}},
+      LIFECYCLE_STAGES.slice(0,-1).map((_,i)=>
+        React.createElement('div', {key:i, style:{flex:1,height:2,background: i<curIdx?C.teal:C.cardBorder,margin:'0 1px'}})
+      )
+    )
+  );
 };
 const SectionLabel = ({children, right}) => (
   React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}, React.createElement("span", null, children), right)
@@ -2572,6 +2617,99 @@ const CellarLogScreen = ({lots=[]}) => {
   );
 };
 
+const TraceScreen = ({lot, lots}) => {
+  const [labData] = React.useState(()=>{try{return JSON.parse(localStorage.getItem('cm_lab')||'[]');}catch{return [];}});
+  const [cellarLog] = React.useState(()=>{try{return JSON.parse(localStorage.getItem('cm_cellarlog')||'[]');}catch{return [];}});
+  const [caseGoods] = React.useState(()=>{try{return JSON.parse(localStorage.getItem('cm_casegoods')||'[]');}catch{return [];}});
+  if(!lot) return React.createElement('div',{style:{padding:20,color:C.textDim}},'No lot selected.');
+  const lotName = lot.name;
+  // Build unified event list
+  const events = [];
+  // 1. Fermentation logs (from lot.logs)
+  (lot.logs||[]).forEach(e=>{
+    const vals=[];
+    if(e.brix!=null) vals.push(`Brix ${e.brix}`);
+    if(e.temp!=null) vals.push(`${e.temp}°F`);
+    if(e.ph!=null) vals.push(`pH ${e.ph}`);
+    if(e.ta!=null) vals.push(`TA ${e.ta}`);
+    if(e.so2Free!=null) vals.push(`FSO₂ ${e.so2Free}`);
+    if(e.va!=null) vals.push(`VA ${e.va}`);
+    events.push({date:e.date,type:'ferm',icon:'🌡',label:'Ferm Reading',detail:vals.join(' · '),notes:e.notes,user:e.user,color:C.teal});
+  });
+  // 2. Lab readings
+  labData.filter(r=>r.lotName===lotName).forEach(r=>{
+    const vals=[];
+    if(r.ph) vals.push(`pH ${r.ph}`);
+    if(r.ta) vals.push(`TA ${r.ta}`);
+    if(r.va) vals.push(`VA ${r.va}`);
+    if(r.freeSo2) vals.push(`FSO₂ ${r.freeSo2}`);
+    if(r.alcohol) vals.push(`Alc ${r.alcohol}%`);
+    if(r.brix) vals.push(`Brix ${r.brix}`);
+    events.push({date:r.date,type:'lab',icon:'🔬',label:'Lab Analysis',detail:vals.join(' · '),notes:r.notes,color:'#60a5fa'});
+  });
+  // 3. Cellar log events
+  cellarLog.filter(e=>e.lotName===lotName).forEach(e=>{
+    const qty = e.qty&&e.unit ? ` — ${e.qty} ${e.unit}` : '';
+    events.push({date:e.date,type:'cellar',icon:e.icon||'📋',label:e.type||e.eventType,detail:(e.detail||'')+qty,notes:e.notes,color:C.accentLight});
+  });
+  // 4. Case goods bottling runs
+  caseGoods.filter(r=>r.lot===lotName).forEach(r=>{
+    events.push({date:r.date,type:'bottle',icon:'🍾',label:'Bottling Run',detail:`${r.casesProduced} cases × ${r.bottlesPerCase||12} · ${r.bottleSize||'750ml'}${r.label?' · '+r.label:''}`,notes:r.notes,color:'#34d399'});
+  });
+  // Sort newest first
+  events.sort((a,b)=>b.date.localeCompare(a.date));
+  const lifecycle = inferLifecycle(lot);
+  const stage = LIFECYCLE_STAGES.find(s=>s.k===lifecycle)||LIFECYCLE_STAGES[0];
+  return React.createElement('div', null,
+    // Lot header
+    React.createElement('div', {style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:14,padding:'14px 16px',marginBottom:14}},
+      React.createElement('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
+        React.createElement('div', null,
+          React.createElement('div', {style:{fontSize:20,fontWeight:900}}, lot.name),
+          React.createElement('div', {style:{fontSize:12,color:C.textMuted,marginTop:2}}, [lot.vintage&&`'${String(lot.vintage).slice(2)}`,lot.varietal,lot.vineyard].filter(Boolean).join(' · '))
+        ),
+        React.createElement('div', {style:{background:stage.color+'22',border:`1px solid ${stage.color}44`,borderRadius:20,padding:'4px 10px',fontSize:11,fontWeight:700,color:stage.color}}, stage.icon+' '+stage.label)
+      ),
+      React.createElement(LifecycleBar, {lot, onStageChange:undefined})
+    ),
+    // Stats row
+    React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,marginBottom:14}},
+      [{label:'Ferm Logs',val:lot.logs?.length||0,color:C.teal},
+       {label:'Lab Tests',val:labData.filter(r=>r.lotName===lotName).length,color:'#60a5fa'},
+       {label:'Cellar Events',val:cellarLog.filter(e=>e.lotName===lotName).length,color:C.accentLight},
+       {label:'Bottle Runs',val:caseGoods.filter(r=>r.lot===lotName).length,color:'#34d399'},
+      ].map(s=>React.createElement('div',{key:s.label,style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:'10px 8px',textAlign:'center'}},
+        React.createElement('div',{style:{fontSize:20,fontWeight:900,color:s.color}},s.val),
+        React.createElement('div',{style:{fontSize:9,fontWeight:700,color:C.textDim,marginTop:2,letterSpacing:0.5,textTransform:'uppercase'}},s.label)
+      ))
+    ),
+    // Timeline
+    events.length===0
+      ? React.createElement('div',{style:{textAlign:'center',padding:40,color:C.textDim,fontSize:14}},'No activity recorded yet for this lot.')
+      : React.createElement('div', {style:{position:'relative',paddingLeft:28}},
+          // Vertical line
+          React.createElement('div',{style:{position:'absolute',left:11,top:0,bottom:0,width:2,background:C.cardBorder,borderRadius:2}}),
+          events.map((e,i)=>
+            React.createElement('div',{key:i,style:{position:'relative',marginBottom:12}},
+              // Dot
+              React.createElement('div',{style:{position:'absolute',left:-22,top:12,width:14,height:14,borderRadius:'50%',background:e.color,border:`2px solid ${e.color}44`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:8}}),
+              React.createElement('div',{style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:'10px 12px'}},
+                React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}},
+                  React.createElement('div',{style:{display:'flex',alignItems:'center',gap:6}},
+                    React.createElement('span',{style:{fontSize:14}},e.icon),
+                    React.createElement('span',{style:{fontSize:12,fontWeight:700,color:e.color}},e.label)
+                  ),
+                  React.createElement('div',{style:{fontSize:10,color:C.textDim}},e.date)
+                ),
+                e.detail&&React.createElement('div',{style:{fontSize:12,color:C.text,marginBottom:e.notes?4:0}},e.detail),
+                e.notes&&React.createElement('div',{style:{fontSize:11,color:C.textDim,fontStyle:'italic'}},e.notes),
+                e.user&&React.createElement('div',{style:{fontSize:10,color:C.textDim,marginTop:3}},'by '+e.user)
+              )
+            )
+          )
+        )
+  );
+};
 const QRScanScreen = ({lots}) => {
   const [scanning, setScanning] = React.useState(false);
   const [result, setResult]     = React.useState(null);
@@ -3649,9 +3787,10 @@ function App() {
               })())
           ):(React.createElement(React.Fragment, null, React.createElement(Card, null, React.createElement("label", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",display:"block",marginBottom:8}}, "Lot / Tank / Barrel"), React.createElement("select", {value: form.lotId, onChange: e=>setForm(f=>({...f,lotId:e.target.value})), style: {width:"100%",background:C.bg,border:`1px solid ${C.cardBorder}`,color:form.lotId?C.text:C.textDim,borderRadius:8,padding:"11px 12px",fontSize:15,outline:"none"}}, React.createElement("option", {value: ""}, "Select lot..."), lots.map(l=>React.createElement("option", {key: l.id, value: l.id}, l.name, "—", l.clone)))), React.createElement(Card, null, React.createElement("label", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",display:"block",marginBottom:8}}, "Date"), React.createElement("input", {type: "date", value: form.date, onChange: e=>setForm(f=>({...f,date:e.target.value})), style: {width:"100%",background:C.bg,border:`1px solid ${C.cardBorder}`,color:C.text,borderRadius:8,padding:"11px 12px",fontSize:15,outline:"none"}})), React.createElement(Card, null, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:14}}, "Readings"), React.createElement("div", {style: {display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}, [{k:"brix",l:"Brix °",ph:"19.0"},{k:"temp",l:"Temp °F",ph:"62"},{k:"ph",l:"pH",ph:"3.62"},{k:"ta",l:"TA (g/L)",ph:"5.4"},{k:"malic",l:"Malic (g/L)",ph:"1.8"},{k:"yan",l:"YAN",ph:"180"},{k:"so2Free",l:"Free SO₂",ph:"18"},{k:"totalSo2",l:"Total SO₂",ph:"60"},{k:"va",l:"VA (g/L)",ph:"0.3"}].map(f=>(
                   React.createElement("div", {key: f.k}, React.createElement("label", {style: {fontSize:11,color:C.textDim,fontWeight:600,display:"block",marginBottom:5}}, f.l), React.createElement("input", {type: "number", step: "0.01", placeholder: f.ph, value: form[f.k], onChange: e=>setForm(p=>({...p,[f.k]:e.target.value})), style: {width:"100%",background:C.bg,border:`1px solid ${C.cardBorder}`,color:C.text,borderRadius:8,padding:"10px 12px",fontSize:15,outline:"none"}}))
-                )))), React.createElement(Card, {style: {marginBottom:18}}, React.createElement("label", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",display:"block",marginBottom:8}}, "Notes"), React.createElement("textarea", {placeholder: "Observations, additions, anything notable...", value: form.notes, onChange: e=>setForm(f=>({...f,notes:e.target.value})), rows: 3, style: {width:"100%",background:C.bg,border:`1px solid ${C.cardBorder}`,color:C.text,borderRadius:8,padding:"11px 12px",fontSize:14,outline:"none",resize:"none",fontFamily:"inherit"}})), React.createElement("button", {onClick: saveLog, style: {width:"100%",background:`linear-gradient(135deg,${C.accent},#6d28d9)`,border:"none",borderRadius:14,padding:16,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer"}}, "Save Log Entry"))))), screen===SCREENS.lots&&(React.createElement(React.Fragment, null, lotsFilter && (
+                )))), React.createElement(Card, {style: {marginBottom:18}}, React.createElement("label", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",display:"block",marginBottom:8}}, "Notes"), React.createElement("textarea", {placeholder: "Observations, additions, anything notable...", value: form.notes, onChange: e=>setForm(f=>({...f,notes:e.target.value})), rows: 3, style: {width:"100%",background:C.bg,border:`1px solid ${C.cardBorder}`,color:C.text,borderRadius:8,padding:"11px 12px",fontSize:14,outline:"none",resize:"none",fontFamily:"inherit"}})), React.createElement("button", {onClick: saveLog, style: {width:"100%",background:`linear-gradient(135deg,${C.accent},#6d28d9)`,border:"none",borderRadius:14,padding:16,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer"}}, "Save Log Entry"))))), screen===SCREENS.trace&&currentLot&&React.createElement(TraceScreen,{lot:currentLot,lots}),
+screen===SCREENS.lots&&(React.createElement(React.Fragment, null, lotsFilter && (
             React.createElement("div", {style: {display:"flex",alignItems:"center",gap:8,marginBottom:14,background:C.accentDim,border:`1px solid ${C.accent}44`,borderRadius:12,padding:"10px 14px"}}, React.createElement("span", {style: {fontSize:12,fontWeight:700,color:C.accentLight}}, "Filtered:", lotsFilter), React.createElement("button", {onClick: ()=>setLotsFilter(null), style: {marginLeft:"auto",background:"transparent",border:"none",color:C.accentLight,cursor:"pointer",fontSize:14}}, "× Clear"))
-          ), [{key:"active",label:"Fermenting"},{key:"aging",label:"Aging"},{key:"barrel",label:"In Barrel"},{key:"done",label:"Complete"}].map(({key,label})=>{
+          ), [{key:"harvest",label:"Harvest"},{key:"active",label:"Fermenting"},{key:"ferment",label:"Fermenting"},{key:"aging",label:"Aging"},{key:"barrel",label:"In Barrel"},{key:"filtering",label:"Filtering"},{key:"done",label:"Bottled"},{key:"bottled",label:"Bottled"},{key:"released",label:"Released"}].map(({key,label})=>{
             const group=lotsFilter ? lots.filter(l=>l.status===lotsFilter) : lots.filter(l=>l.status===key); if(!group.length) return null;
             return(React.createElement("div", {key: key, style: {marginBottom:22}}, React.createElement(SectionLabel, null, label, "(", group.length, ")"), group.map(lot=>(
                 React.createElement("div", {key: lot.id, onClick: ()=>openDetail(lot), style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:"13px 15px",marginBottom:10,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}, React.createElement("div", {style: {display:"flex",alignItems:"center",gap:6}}, React.createElement(Dot, {status: lot.status}), React.createElement("span", {style: {fontWeight:700,fontSize:15}}, lot.name), lot.vintage && React.createElement("span", {style: {background:C.accentDim,color:C.accentLight,fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:99}}, "'", String(lot.vintage).slice(2)), lot.alert&&React.createElement("span", {style: {marginLeft:4}}, React.createElement(AlertBadge, {alert: lot.alert}))), React.createElement("div", {style: {fontSize:12,color:C.textMuted,marginTop:3}}, lot.vineyard, "·", lot.varietal, lot.clone?` · ${lot.clone}`:""), React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:2}}, lot.location||lot.type, "·", lot.gallons, "gal"), React.createElement("div", {style: {color:C.textDim,fontSize:22}}, "›"))
@@ -3660,7 +3799,16 @@ function App() {
           const lot=currentLot;
           const last=lot.logs[lot.logs.length-1];
           const ALERT_TYPES_D=[{key:"topping",icon:"🍷",label:"Topping"},{key:"so2Check",icon:"🧪",label:"SO₂ Check"},{key:"malicCheck",icon:"🔬",label:"Malic Check"}];
-          return(React.createElement(React.Fragment, null, React.createElement(Card, {style: {marginBottom:12}}, React.createElement("div", {style: {display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}, React.createElement("div", null, React.createElement("div", {style: {display:"flex",alignItems:"center",gap:8,marginBottom:4}}, React.createElement("span", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1,textTransform:"uppercase"}}, lot.type==="barrel"?"🛢 Barrel":"⬛ Tank"), React.createElement("span", {style: {fontSize:11,color:C.textDim}}, "·"), React.createElement("span", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1}}, lot.vintage), React.createElement("span", {style: {fontSize:11,fontWeight:700,color:C.accentLight,background:C.accentDim,borderRadius:20,padding:"2px 9px",letterSpacing:0.5}}, lot.gallons, "gal")), React.createElement("div", {style: {fontSize:22,fontWeight:900,color:C.text,lineHeight:1.2}}, lot.name)), lot.alert&&React.createElement(AlertBadge, {alert: lot.alert})), React.createElement("div", {style: {display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}, [
+          const traceBtn = React.createElement("button", {onClick:()=>go(SCREENS.trace,SCREENS.detail),
+            style:{width:"100%",background:C.card,border:`1px solid ${C.teal}44`,borderRadius:12,padding:"11px 16px",color:C.teal,
+              fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}},
+            "🔗", "Full Lot History  →");
+          return(React.createElement(React.Fragment, null, React.createElement(Card, {style: {marginBottom:12}}, React.createElement("div", {style: {display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}, React.createElement("div", null, React.createElement("div", {style: {display:"flex",alignItems:"center",gap:8,marginBottom:4}}, React.createElement("span", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1,textTransform:"uppercase"}}, lot.type==="barrel"?"🛢 Barrel":"⬛ Tank"), React.createElement("span", {style: {fontSize:11,color:C.textDim}}, "·"), React.createElement("span", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1}}, lot.vintage), React.createElement("span", {style: {fontSize:11,fontWeight:700,color:C.accentLight,background:C.accentDim,borderRadius:20,padding:"2px 9px",letterSpacing:0.5}}, lot.gallons, "gal")), React.createElement("div", {style: {fontSize:22,fontWeight:900,color:C.text,lineHeight:1.2}}, lot.name)), lot.alert&&React.createElement(AlertBadge, {alert: lot.alert})), React.createElement(LifecycleBar, {lot, onStageChange:(stage)=>{
+                setLots(prev=>prev.map(l=>l.id===lot.id?{...l,lifecycle:stage}:l));
+                setLot(prev=>prev?{...prev,lifecycle:stage}:prev);
+              }}),
+              traceBtn,
+              React.createElement("div", {style: {display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}, [
                   {label:"Vineyard",value:lot.vineyard},
                   {label:"Varietal",value:lot.varietal},
                   {label:"Clone",value:lot.clone},
