@@ -1356,6 +1356,185 @@ const BrixSugar = () => {
 
 
 
+
+const COGSScreen = () => {
+  const COST_CATS = [
+    {k:'grapes', l:'🍇 Grapes', color:'#a78bfa'},
+    {k:'barrels', l:'🛢 Barrels', color:'#f97316'},
+    {k:'additives', l:'🧪 Additives', color:'#22c55e'},
+    {k:'labor', l:'👷 Labor', color:'#3b82f6'},
+    {k:'packaging', l:'📦 Packaging', color:'#eab308'},
+    {k:'overhead', l:'🏭 Overhead', color:'#94a3b8'},
+    {k:'other', l:'💰 Other', color:'#f43f5e'},
+  ];
+  const [entries, setEntries] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('cm_cogs') || '[]'); } catch(e) { return []; }
+  });
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [filterLot, setFilterLot] = React.useState('');
+  const [form, setForm] = React.useState({lot:'', category:'grapes', description:'', amount:'', date:new Date().toISOString().slice(0,10), cases:'', bottles:''});
+  React.useEffect(() => {
+    try { localStorage.setItem('cm_cogs', JSON.stringify(entries)); } catch(e) {}
+  }, [entries]);
+  const addEntry = () => {
+    if (!form.lot.trim() || !form.amount) return;
+    setEntries(prev => [...prev, {
+      id: Date.now(), lot: form.lot.trim(), category: form.category,
+      description: form.description.trim(), amount: parseFloat(form.amount),
+      date: form.date, cases: Number(form.cases) || 0, bottles: Number(form.bottles) || 0,
+    }]);
+    setForm({lot:'', category:'grapes', description:'', amount:'', date:new Date().toISOString().slice(0,10), cases:'', bottles:''});
+    setShowAdd(false);
+  };
+  const deleteEntry = (id) => setEntries(prev => prev.filter(e => e.id !== id));
+  const lots = [...new Set(entries.map(e => e.lot))].sort();
+  const filtered = filterLot ? entries.filter(e => e.lot === filterLot) : entries;
+  const totalCost = filtered.reduce((s,e) => s+e.amount, 0);
+  const byLot = {};
+  entries.forEach(e => {
+    if (!byLot[e.lot]) byLot[e.lot] = {total:0, cases:0, bottles:0};
+    byLot[e.lot].total += e.amount;
+    if (e.cases) byLot[e.lot].cases = Math.max(byLot[e.lot].cases, e.cases);
+    if (e.bottles) byLot[e.lot].bottles = Math.max(byLot[e.lot].bottles, e.bottles);
+  });
+  const lotList = Object.entries(byLot).map(([lot, d]) => ({
+    lot, total: d.total,
+    perCase: d.cases > 0 ? d.total / d.cases : null,
+    perBottle: d.bottles > 0 ? d.total / d.bottles : null,
+  })).sort((a,b) => b.total - a.total);
+  const fmt = (n) => '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return React.createElement(React.Fragment, null,
+    entries.length > 0 && React.createElement('div', {style:{display:'flex',gap:12,marginBottom:16,flexWrap:'wrap'}},
+      React.createElement('div', {style:{flex:1,background:C.card,border:'1px solid '+C.cardBorder,borderRadius:10,padding:'10px 14px',minWidth:100}},
+        React.createElement('div', {style:{fontSize:11,color:C.textDim,marginBottom:2}}, 'TOTAL COST'),
+        React.createElement('div', {style:{fontSize:22,fontWeight:700,color:C.accentLight}}, fmt(entries.reduce((s,e)=>s+e.amount,0)))
+      ),
+      React.createElement('div', {style:{flex:1,background:C.card,border:'1px solid '+C.cardBorder,borderRadius:10,padding:'10px 14px',minWidth:100}},
+        React.createElement('div', {style:{fontSize:11,color:C.textDim,marginBottom:2}}, 'LOTS TRACKED'),
+        React.createElement('div', {style:{fontSize:22,fontWeight:700,color:C.green}}, lots.length)
+      ),
+      React.createElement('div', {style:{flex:1,background:C.card,border:'1px solid '+C.cardBorder,borderRadius:10,padding:'10px 14px',minWidth:100}},
+        React.createElement('div', {style:{fontSize:11,color:C.textDim,marginBottom:2}}, 'ENTRIES'),
+        React.createElement('div', {style:{fontSize:22,fontWeight:700,color:C.blue}}, entries.length)
+      )
+    ),
+    React.createElement('div', {style:{display:'flex',gap:8,marginBottom:12,alignItems:'center',flexWrap:'wrap'}},
+      lots.length > 0 && React.createElement('select', {
+        value:filterLot, onChange:e=>setFilterLot(e.target.value),
+        style:{flex:1,minWidth:120,background:C.card,border:'1px solid '+C.cardBorder,color:filterLot?C.text:C.textDim,borderRadius:8,padding:'7px 10px',fontSize:12,outline:'none',cursor:'pointer'}
+      },
+        React.createElement('option',{value:''},'All Lots'),
+        lots.map(l=>React.createElement('option',{key:l,value:l},l))
+      ),
+      React.createElement('button', {
+        onClick:()=>setShowAdd(true),
+        style:{background:C.accent,border:'none',borderRadius:8,padding:'7px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}
+      }, '+ Add Cost Entry')
+    ),
+    lotList.length > 0 && !filterLot && React.createElement('div', {style:{marginBottom:16}},
+      React.createElement('div', {style:{fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:0.8,marginBottom:8,textTransform:'uppercase'}}, 'Cost Summary by Lot'),
+      lotList.map(l => React.createElement(Card, {key:l.lot},
+        React.createElement('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}},
+          React.createElement('div', {style:{fontWeight:700,fontSize:14,color:C.text}}, l.lot),
+          React.createElement('div', {style:{display:'flex',gap:16,flexWrap:'wrap'}},
+            React.createElement('div', {style:{textAlign:'right'}},
+              React.createElement('div', {style:{fontSize:10,color:C.textDim}}, 'TOTAL'),
+              React.createElement('div', {style:{fontSize:16,fontWeight:700,color:C.accentLight}}, fmt(l.total))
+            ),
+            l.perCase !== null && React.createElement('div', {style:{textAlign:'right'}},
+              React.createElement('div', {style:{fontSize:10,color:C.textDim}}, '/CASE'),
+              React.createElement('div', {style:{fontSize:16,fontWeight:700,color:C.green}}, fmt(l.perCase))
+            ),
+            l.perBottle !== null && React.createElement('div', {style:{textAlign:'right'}},
+              React.createElement('div', {style:{fontSize:10,color:C.textDim}}, '/BOTTLE'),
+              React.createElement('div', {style:{fontSize:16,fontWeight:700,color:C.blue}}, fmt(l.perBottle))
+            )
+          )
+        )
+      ))
+    ),
+    filtered.length > 0 && React.createElement('div', {style:{fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:0.8,marginBottom:8,textTransform:'uppercase'}},
+      filterLot ? 'Entries for '+filterLot : 'All Cost Entries'
+    ),
+    entries.length === 0 && React.createElement('div', {style:{textAlign:'center',color:C.textDim,padding:'32px 0',fontSize:13}},
+      'No cost entries yet. Start tracking your COGS by adding expenses per lot.'
+    ),
+    filtered.slice().reverse().map(e => {
+      const cat = COST_CATS.find(c=>c.k===e.category)||COST_CATS[0];
+      return React.createElement(Card, {key:e.id},
+        React.createElement('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
+          React.createElement('div', {style:{flex:1}},
+            React.createElement('div', {style:{display:'flex',alignItems:'center',gap:8,marginBottom:4}},
+              React.createElement('span', {style:{fontSize:11,background:cat.color+'22',color:cat.color,borderRadius:4,padding:'2px 6px',fontWeight:700}}, cat.l),
+              React.createElement('span', {style:{fontSize:12,color:C.textDim}}, e.lot)
+            ),
+            e.description && React.createElement('div', {style:{fontSize:13,color:C.text,marginBottom:4}}, e.description),
+            React.createElement('div', {style:{fontSize:11,color:C.textDim}}, e.date)
+          ),
+          React.createElement('div', {style:{textAlign:'right',marginLeft:12}},
+            React.createElement('div', {style:{fontSize:18,fontWeight:700,color:C.accentLight}}, fmt(e.amount)),
+            React.createElement('button', {
+              onClick:()=>deleteEntry(e.id),
+              style:{background:'transparent',border:'none',color:C.textDim,cursor:'pointer',padding:'2px 4px',fontSize:11,marginTop:4,display:'block',marginLeft:'auto'}
+            }, '✕')
+          )
+        )
+      );
+    }),
+    showAdd && React.createElement('div', {
+      style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}
+    },
+      React.createElement('div', {style:{background:C.card,borderRadius:16,padding:24,width:'100%',maxWidth:400,border:'1px solid '+C.cardBorder,maxHeight:'90vh',overflowY:'auto'}},
+        React.createElement('div', {style:{fontWeight:700,fontSize:16,marginBottom:16}}, '💰 Add Cost Entry'),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Lot / Tank #'),
+            React.createElement('input', {value:form.lot, placeholder:'CB-24-001', onChange:e=>setForm(f=>({...f,lot:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Date'),
+            React.createElement('input', {type:'date', value:form.date, onChange:e=>setForm(f=>({...f,date:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          )
+        ),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Category'),
+        React.createElement('select', {value:form.category, onChange:e=>setForm(f=>({...f,category:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:12,outline:'none',cursor:'pointer'}},
+          COST_CATS.map(c=>React.createElement('option',{key:c.k,value:c.k},c.l))
+        ),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Description'),
+        React.createElement('input', {value:form.description, placeholder:'e.g. 5 tons Pinot Noir @ $2,500/ton', onChange:e=>setForm(f=>({...f,description:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:12,outline:'none',boxSizing:'border-box'}}),
+        React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Amount ($)'),
+        React.createElement('input', {type:'number', value:form.amount, placeholder:'0.00', onChange:e=>setForm(f=>({...f,amount:e.target.value})),
+          style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,marginBottom:12,outline:'none',boxSizing:'border-box'}}),
+        React.createElement('div', {style:{fontSize:11,color:C.textDim,marginBottom:8,fontStyle:'italic'}}, 'Optional: enter cases/bottles to calculate per-unit costs'),
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:20}},
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Total Cases'),
+            React.createElement('input', {type:'number', value:form.cases, placeholder:'0', onChange:e=>setForm(f=>({...f,cases:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          ),
+          React.createElement('div', null,
+            React.createElement('label', {style:{fontSize:11,fontWeight:700,color:C.textDim,display:'block',marginBottom:4,letterSpacing:0.8,textTransform:'uppercase'}}, 'Total Bottles'),
+            React.createElement('input', {type:'number', value:form.bottles, placeholder:'0', onChange:e=>setForm(f=>({...f,bottles:e.target.value})),
+              style:{width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'9px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}})
+          )
+        ),
+        React.createElement('div', {style:{display:'flex',gap:10}},
+          React.createElement('button', {onClick:addEntry,
+            style:{flex:1,background:C.accent,border:'none',borderRadius:10,padding:12,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}
+          }, 'Add Entry'),
+          React.createElement('button', {onClick:()=>setShowAdd(false),
+            style:{flex:1,background:C.bg,border:'1px solid '+C.cardBorder,borderRadius:10,padding:12,color:C.textMuted,fontSize:13,fontWeight:700,cursor:'pointer'}
+          }, 'Cancel')
+        )
+      )
+    )
+  );
+};
+
 const CaseGoodsScreen = () => {
   const BOTTLE_SIZES = [
     {k:'750ml', l:'750 mL'},
@@ -2131,10 +2310,10 @@ const WorkOrdersScreen = ({lots, members}) => {
 
 const ToolsScreen = ({lots, onSelect, members}) => {
   const [tab,setTab]=useState("so2");
-  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"},{k:"case",l:"🍾 Case Goods"}];
+  const tabs=[{k:"so2",l:"🧪 SO₂"},{k:"tartaric",l:"⚗️ Tartaric"},{k:"chaptal",l:"🍬 Chaptal"},{k:"blend",l:"🔀 Blend"},{k:"kmbs",l:"⚙️ KMBS"},{k:"copper",l:"🧬 Copper"},{k:"yan",l:"🧪 YAN"},{k:"brix",l:"🥤 Brix"},{k:"map",l:"▦ Map"},{k:"orders",l:"📋 Orders"},{k:"ferm",l:"🌡 Ferm"},{k:"dry",l:"📦 Dry Goods"},{k:"case",l:"🍾 Case Goods"},{k:"cogs",l:"💰 COGS"}];
   return(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:2}}, tabs.map(t=>(
         React.createElement("button", {key: t.k, onClick: ()=>setTab(t.k), style: {background:tab===t.k?C.accent:C.card,border:`1px solid ${tab===t.k?C.accent:C.cardBorder}`,color:tab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}, t.l)
-      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, null)));
+      ))), tab==="so2"&&React.createElement(SO2Calc, null), tab==="tartaric"&&React.createElement(TartaricCalc, null), tab==="chaptal"&&React.createElement(ChaptalCalc, null), tab==="blend"&&React.createElement(BlendCalc, null), tab==="kmbs"&&React.createElement(KMBSCalc, null), tab==="copper"&&React.createElement(CopperCalc, null), tab==="yan"&&React.createElement(YANCalc, null), tab==="brix"&&React.createElement(BrixSugar, null), tab==="map"&&React.createElement(MapScreen, {lots: lots, onSelect: onSelect}), tab==="orders"&&React.createElement(WorkOrdersScreen, {lots: lots, members: members}), tab==="ferm"&&React.createElement(FermentationScreen, {lots: lots}), tab==="dry"&&React.createElement(DryGoodsScreen, null), tab==="case"&&React.createElement(CaseGoodsScreen, null), tab==="cogs"&&React.createElement(COGSScreen, null)));
 };
 
 /* ── BARREL MAP inside Tools ── */
