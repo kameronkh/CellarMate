@@ -3903,7 +3903,7 @@ const CellarHealthScreen = ({lots, settings, go, SCREENS}) => {
             )
           : React.createElement('div', {style:{fontSize:12,color:C.textDim,fontStyle:'italic'}}, 'No readings logged yet - tap Log to add first'),
         h.freeSO2Target!=null && React.createElement('div', {style:{fontSize:11,color:C.textDim,marginTop:3}},
-          'Target: '+h.freeSO2Target.toFixed(0)+' ppm free'+(h.mSO2!=null=' | Mol: '+h.mSO2.toFixed(2)+' ppm':''))
+          'Target: '+h.freeSO2Target.toFixed(0)+' ppm free'+(h.mSO2!=null?' | Mol: '+h.mSO2.toFixed(2)+' ppm':''))
       ))
     ),
 
