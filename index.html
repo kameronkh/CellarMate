@@ -828,6 +828,9 @@ const WINERIES_KEY      = 'cellarmate_wineries';
 // ── Supabase Client ──────────────────────────────────────────────────────
 const SUPA_URL = 'https://qvfelrqijvvxpookotvr.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2ZmVscnFpanZ2eHBvb2tvdHZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NjE0MzAsImV4cCI6MjA5MDMzNzQzMH0.FEdySBJBVbDeNhMpds7vdEiqdbd45xKRQMvWT0PNI7M';
+const INITIAL_HASH = window.location.hash || '';
+const INITIAL_RECOVERY = INITIAL_HASH.indexOf('type=recovery') !== -1;
+const INITIAL_LINK_ERROR = INITIAL_HASH.indexOf('error=') !== -1;
 const supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
 
 function simpleHash(str) {
@@ -3601,10 +3604,11 @@ const SettingsScreen = ({activeWinery, setWineries, lots, setLots, wineries}) =>
    MAIN APP
 ══════════════════════════════════ 
 /* ── LOGIN SCREEN ───────────────────────────────────────────────────── */
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, initialError }) {
   const [email, setEmail] = useState('');
   const [pass, setPass]   = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError || '');
+  useEffect(() => { if (initialError) setError(initialError); }, [initialError]);
   const [loading, setLoading] = useState(false);
   const [mode, setMode]   = useState('login');
   const [resetEmail, setResetEmail] = useState('');
@@ -3617,7 +3621,7 @@ function LoginScreen({ onLogin }) {
   }
   async function sendReset(e) {
     e.preventDefault(); setError(''); setLoading(true);
-    const { error: authErr } = await supa.auth.resetPasswordForEmail(resetEmail.trim(), { redirectTo: window.location.origin });
+    const { error: authErr } = await supa.auth.resetPasswordForEmail(resetEmail.trim(), { redirectTo: window.location.origin + '/?reset=1' });
     setLoading(false);
     if (authErr) { setError(authErr.message); } else { setMode('sent'); }
   }
@@ -3672,6 +3676,57 @@ function LoginScreen({ onLogin }) {
     )
   );
 }
+/* -- SET NEW PASSWORD SCREEN (password recovery) -- */
+function SetPasswordScreen({ email, onDone, onCancel }) {
+  const [p1, setP1] = useState('');
+  const [p2, setP2] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+  const iStyle = {width:'100%',background:C.bg,border:'1px solid '+C.cardBorder,color:C.text,borderRadius:8,padding:'11px 12px',fontSize:15,outline:'none'};
+  const lStyle = {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:'uppercase',display:'block',marginBottom:8};
+  async function save(e) {
+    e.preventDefault(); setError('');
+    if (p1.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (p1 !== p2) { setError('Passwords do not match.'); return; }
+    setLoading(true);
+    const { error: upErr } = await supa.auth.updateUser({ password: p1 });
+    setLoading(false);
+    if (upErr) { setError(upErr.message); } else { setDone(true); }
+  }
+  const card = {background:C.card,border:'1px solid '+C.cardBorder,borderRadius:16,padding:'24px'};
+  return React.createElement('div', {style:{position:'fixed',inset:0,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}},
+    React.createElement('div', {style:{maxWidth:400,width:'100%'}},
+      React.createElement('div', {style:{textAlign:'center',marginBottom:32}},
+        React.createElement('div', {style:{fontSize:52,marginBottom:10}}, '🍷'),
+        React.createElement('div', {style:{fontSize:28,fontWeight:900,color:C.text}}, 'CellarMate'),
+        React.createElement('div', {style:{fontSize:13,color:C.textMuted,marginTop:6}}, 'Tystrya Estate · Winery Management')
+      ),
+      done
+        ? React.createElement('div', {style:{...card,textAlign:'center'}},
+            React.createElement('div', {style:{fontSize:17,fontWeight:800,color:C.text,marginBottom:10}}, 'Password updated'),
+            React.createElement('div', {style:{fontSize:13,color:C.textDim,marginBottom:20}}, 'Your new password works for CellarMate and Tystrya CRM.'),
+            React.createElement('button', {onClick:onDone,style:{width:'100%',background:C.accent,border:'none',borderRadius:10,padding:'13px',color:'#fff',fontSize:15,fontWeight:800,cursor:'pointer'}}, 'Continue to CellarMate')
+          )
+        : React.createElement('form', {onSubmit:save,style:card},
+            React.createElement('div', {style:{fontSize:16,fontWeight:800,color:C.text,marginBottom:4}}, 'Set New Password'),
+            React.createElement('div', {style:{fontSize:12,color:C.textDim,marginBottom:20}}, 'For ' + email + '. This one login is shared by CellarMate and Tystrya CRM.'),
+            React.createElement('div', {style:{marginBottom:16}},
+              React.createElement('label', {style:lStyle}, 'New Password'),
+              React.createElement('input', {type:'password',value:p1,onChange:e=>setP1(e.target.value),placeholder:'At least 8 characters',autoComplete:'new-password',style:iStyle,autoFocus:true})
+            ),
+            React.createElement('div', {style:{marginBottom:20}},
+              React.createElement('label', {style:lStyle}, 'Confirm Password'),
+              React.createElement('input', {type:'password',value:p2,onChange:e=>setP2(e.target.value),autoComplete:'new-password',style:iStyle})
+            ),
+            error ? React.createElement('div', {style:{background:C.redDim,border:'1px solid '+C.red,borderRadius:8,padding:'10px 12px',color:C.red,fontSize:13,marginBottom:16,fontWeight:600}}, error) : null,
+            React.createElement('button', {type:'submit',disabled:loading,style:{width:'100%',background:loading?C.cardBorder:C.accent,border:'none',borderRadius:10,padding:'13px',color:'#fff',fontSize:15,fontWeight:800,cursor:loading?'not-allowed':'pointer'}}, loading?'Saving…':'Save New Password'),
+            React.createElement('button', {type:'button',onClick:onCancel,style:{width:'100%',marginTop:12,background:'transparent',border:'none',color:C.textDim,fontSize:14,fontWeight:600,cursor:'pointer'}}, 'Cancel')
+          )
+    )
+  );
+}
+
 /* ── SUPER ADMIN SCREEN ─────────────────────────────────────────────── */
 function SuperAdminScreen({ wineries, accounts, setAccounts, onViewWinery, onLogout, authSession }) {
   const [tab, setTab]           = useState('wineries');
@@ -3966,6 +4021,8 @@ function App() {
   const [selectedLot,setLot]= useState(null);
   const [authSession, setAuthSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [recoveryMode, setRecoveryMode] = useState(INITIAL_RECOVERY);
+  const [recoveryError, setRecoveryError] = useState(INITIAL_LINK_ERROR ? 'That reset link is invalid or has expired. Use Forgot password? to get a new one.' : '');
   const [wineries,setWineries]     = useState(() => loadPersistedWineries() || INITIAL_WINERIES);
   const [activeWineryId,setActiveWineryId] = useState(null);
   const [activeUserId,setActiveUserId]   = useState(null);
@@ -4006,6 +4063,14 @@ function App() {
 
   useEffect(() => {
     async function initAuth() {
+      const qs = new URLSearchParams(window.location.search);
+      const th = qs.get('token_hash');
+      if (th && qs.get('type') === 'recovery') {
+        const { error: vErr } = await supa.auth.verifyOtp({ token_hash: th, type: 'recovery' });
+        window.history.replaceState({}, '', window.location.pathname);
+        if (vErr) { setRecoveryError('That reset link is invalid or has expired. Use Forgot password? to get a new one.'); }
+        else { setRecoveryMode(true); }
+      }
       const { data: { session } } = await supa.auth.getSession();
       if (session) {
         const profile = await getSupaProfile(session.user.id);
@@ -4018,6 +4083,7 @@ function App() {
     }
     initAuth();
     const { data: { subscription } } = supa.auth.onAuthStateChange(async (_event, session) => {
+      if (_event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
       if (session) {
         const profile = await getSupaProfile(session.user.id);
         const sess = { email: session.user.email, id: session.user.id, ...(profile||{}),
@@ -4052,8 +4118,13 @@ function App() {
       React.createElement('div',{style:{color:C.textDim,fontSize:14,fontWeight:600}},'Loading CellarMate…')
     );
   }
+  if (recoveryMode && authSession) {
+    return React.createElement(SetPasswordScreen, { email: authSession.email,
+      onDone: () => setRecoveryMode(false),
+      onCancel: () => { setRecoveryMode(false); handleLogout(); } });
+  }
   if (!authSession) {
-    return React.createElement(LoginScreen, { onLogin: () => {} });
+    return React.createElement(LoginScreen, { onLogin: () => {}, initialError: recoveryError });
   }
   if (authSession.role === 'super_admin' && !authSession._adminView) {
     return React.createElement(SuperAdminScreen, {
