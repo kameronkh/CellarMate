@@ -5202,7 +5202,7 @@ function App() {
   }, []);
 
   async function handleLogout() {
-    await supa.auth.signOut();
+    await supa.auth.signOut({ scope: 'local' }); // sign out this device only - do not end the CRM session
     setAuthSession(null);
     setActiveWineryId(null);
     setActiveUserId(null);
