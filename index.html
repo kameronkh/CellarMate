@@ -52,6 +52,7 @@
   document.addEventListener('DOMContentLoaded', function() {
     var root = document.getElementById('root');
     if (root) observer.observe(root, {childList:true, subtree:false});
+    if (root && root.children.length > 0) { document.getElementById('loading-indicator').style.display = 'none'; observer.disconnect(); }
     // If still loading after 30s, show a timeout message
     setTimeout(function() {
       var li = document.getElementById('loading-indicator');
@@ -595,7 +596,7 @@ const makeAlerts = (topDate, so2Date, malicDate) => ({
 const CELLAR_RACKS = ["EBS 1","EBS 2","EBS 3","EBS 4","EBS 5","EBS 6","EBS 7","EBS 8","EBS 9","EBS 10","EBS 11","EBS 12","EBS 13","OBAS 1","OBAS 2","OBAS 3","OBAS 4","OBAS 5","OBAS 6","OBAS 7","OBAS 8","OBAS 9","OBAS 10","OBS 5"];
 const SLOTS = ["A","B","C"];
 
-const SCREENS = { dash:"dash", log:"log", lots:"lots", detail:"detail", tools:"tools", alerts:"alerts", map:"map", transfer:"transfer", settings:"settings", report:"report", blocks:"blocks", superAdmin:"superAdmin", trace:"trace", health:"health" };const LIFECYCLE_STAGES=[
+const SCREENS = { dash:"dash", log:"log", lots:"lots", detail:"detail", tools:"tools", alerts:"alerts", map:"map", transfer:"transfer", settings:"settings", report:"report", blocks:"blocks", superAdmin:"superAdmin", trace:"trace", health:"health", reports:"reports" };const LIFECYCLE_STAGES=[
   {k:"harvest",  icon:"🍇", label:"Harvest",   color:"#f97316"},
   {k:"ferment",  icon:"🌡", label:"Ferment",   color:"#22d3ee"},
   {k:"barrel",   icon:"🛢", label:"Barrel",    color:"#a78bfa"},
@@ -4010,6 +4011,287 @@ const CellarHealthScreen = ({lots, settings, go, SCREENS}) => {
   );
 };
 
+/* == CELLAR DATA + REPORTS (reads the cellarmate area of the database) == */
+const cmE = React.createElement;
+const CM_TABLE_LIST = [
+  ['barrel_status_2026','2026 barrel status'],['barrel_status_2025','2025 barrel status'],['vessels','Tanks, kegs, topping'],
+  ['barrels','Barrels (all vintages)'],['vintage_lots','Lots'],['so2_log','SO2 log'],['malic_results','Malic results'],
+  ['ph_round_2026','2026 pH round'],['ph_readings_2026_11_18','pH readings Nov 18-19'],['cellar_notes','Cellar notes'],
+  ['tasting_notes','Tasting notes'],['cellar_trials','Cellar trials'],['fermenters','Fermenters'],['ferment_readings','Ferment readings'],
+  ['picks','Picks'],['fruit_ownership','Fruit ownership'],['estate_harvests','Estate harvests'],['vineyard_blocks','Vineyard blocks'],
+  ['vineyard_sprays','Vineyard sprays'],['soil_tests','Soil tests'],['tissue_tests','Tissue tests'],['bottled_skus','Bottled SKUs'],
+  ['custom_crush_quotes','Custom crush quotes'],['cellar_locations','Cellar locations'],['data_gaps','Open questions']
+];
+const CM_CACHE = {};
+const CM_HIDE = {id:1, organization_id:1, created_at:1, updated_at:1};
+let CM_PRESET = null;
+async function cmFetch(table) {
+  if (CM_CACHE[table]) return CM_CACHE[table];
+  let out = [], from = 0;
+  while (true) {
+    const res = await supa.schema('cellarmate').from(table).select('*').order('id').range(from, from + 999);
+    if (res.error) throw new Error(res.error.message);
+    out = out.concat(res.data || []);
+    if (!res.data || res.data.length < 1000) break;
+    from += 1000;
+  }
+  CM_CACHE[table] = out;
+  return out;
+}
+function cmCols(rows) { return rows.length ? Object.keys(rows[0]).filter(function(k){ return !CM_HIDE[k]; }) : []; }
+function cmVar26(r) {
+  const wt = r.wine_type || '', low = (r.lot_name || '').toLowerCase();
+  if (wt.toLowerCase().indexOf('ros') === 0) return 'Rosé';
+  if (wt === 'White') return low.indexOf('chard') !== -1 ? 'Chardonnay' : low.indexOf('albarino') !== -1 ? 'Albariño' : 'Unknown';
+  if (wt === 'Red') return low.indexOf('port') !== -1 ? 'Port-style' : r.owner === 'Owner?' ? 'Unknown' : 'Pinot Noir';
+  return 'Unknown';
+}
+function cmVar25(r) {
+  if (r.wine_type === 'White') return 'Chardonnay';
+  if (r.wine_type === 'Red' && ['Tystrya Estate','Sawyer','Stiling'].indexOf(r.vineyard) !== -1) return 'Pinot Noir';
+  return 'Unknown';
+}
+function cmCat(g) {
+  g = g || '';
+  if (/^Add SO2/.test(g)) return 'add';
+  if (/^Test|^Done, SO2/.test(g)) return 'test';
+  if (/hold/i.test(g)) return 'hold';
+  if (/^Client|^Confirm/.test(g)) return 'decide';
+  if (/^At target/.test(g)) return 'ok';
+  return 'other';
+}
+const CM_CATS = [['add','Add SO2',C.red],['test','Test first',C.yellow],['hold','Hold SO2',C.blue],['decide','Decision needed',C.textMuted],['ok','At target',C.green]];
+const CM_CAT_COLOR = {add:C.red, test:C.yellow, hold:C.blue, decide:C.textMuted, ok:C.green, other:C.textDim};
+function cmNum(v) { return v == null || v === '' ? null : Number(v); }
+function cmNat(b) { const m = String(b).match(/(\d+)(?!.*\d)/); return m ? parseInt(m[1], 10) : 1e9; }
+async function cmStatusRows() {
+  const a = await cmFetch('barrel_status_2026');
+  const b = await cmFetch('barrel_status_2025');
+  const rows = [];
+  a.forEach(function(r) {
+    rows.push({v:2026, b:r.barrel, var:cmVar26(r), lot:r.lot_name || '', who:r.owner || '', ph:cmNum(r.ph_latest), rise:cmNum(r.ph_rise),
+      malic:r.malic_g_l_text, mlf:r.mlf_status || '', last:null, lastd:null, est:null, target:cmNum(r.target_free_so2_ppm), g:cmNum(r.so2_grams),
+      tab:r.tablets, tart:r.tartaric_g, action:r.action || '', group:r.action_group || '', cat:cmCat(r.action_group)});
+  });
+  b.forEach(function(r) {
+    if (String(r.barrel).length > 12) return;
+    rows.push({v:2025, b:String(r.barrel), var:cmVar25(r), lot:(r.vineyard || 'Vineyard not written') + (r.fermenters ? ' (' + r.fermenters + ')' : ''), who:r.location || '',
+      ph:cmNum(r.ph_latest), rise:null, malic:r.malic_g_l_text, mlf:r.mlf_status || '', last:cmNum(r.last_free_so2_ppm), lastd:r.last_free_so2_date, est:cmNum(r.est_free_so2_now),
+      target:cmNum(r.target_free_so2_ppm), g:cmNum(r.so2_grams), tab:r.tablets, tart:r.tartaric, action:r.action || '', group:r.action_group || '', cat:cmCat(r.action_group)});
+  });
+  rows.sort(function(x, y) { return (y.v - x.v) || (cmNat(x.b) - cmNat(y.b)) || (x.b < y.b ? -1 : 1); });
+  return rows;
+}
+const CM_STATUS_COLS = [['b','Barrel'],['v','Vintage'],['var','Varietal'],['lot','Lot / vineyard'],['who','Owner / location'],['ph','pH'],['rise','pH rise'],['malic','Malic'],['mlf','MLF'],
+  ['last','Last free SO2'],['est','Est. free SO2 now'],['target','Target ppm'],['g','SO2 g'],['tab','Tablets'],['tart','Tartaric'],['action','Action'],['group','Issue']];
+const CM_LIBS = {};
+function cmLib(src) {
+  if (!CM_LIBS[src]) CM_LIBS[src] = new Promise(function(res, rej) {
+    const s = document.createElement('script'); s.src = src;
+    s.onload = function() { res(); }; s.onerror = function() { delete CM_LIBS[src]; rej(new Error('Could not load export library. Check the connection and try again.')); };
+    document.head.appendChild(s);
+  });
+  return CM_LIBS[src];
+}
+async function cmXlsxBook(sheets) {
+  await cmLib('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+  const wb = XLSX.utils.book_new();
+  sheets.forEach(function(s) {
+    const ws = XLSX.utils.json_to_sheet(s.rows, {header: s.cols});
+    ws['!cols'] = s.cols.map(function(c) { return {wch: Math.min(40, Math.max(String(c).length + 2, 10))}; });
+    XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+  });
+  return wb;
+}
+function cmLatin(s) {
+  return String(s == null ? '' : s).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/→/g, '->').replace(/₂/g, '2').replace(/[^\x00-\xff]/g, '?');
+}
+async function cmPdfDoc(title, sub, cols, groups) {
+  await cmLib('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  await cmLib('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
+  const doc = new window.jspdf.jsPDF({orientation:'landscape', unit:'pt', format:'letter'});
+  doc.setFontSize(14); doc.text(cmLatin(title), 30, 34);
+  doc.setFontSize(9); doc.setTextColor(90); doc.text(cmLatin(sub), 30, 48);
+  const body = [];
+  groups.forEach(function(g) {
+    if (g.title) body.push([{content: cmLatin(g.title), colSpan: cols.length, styles: {fillColor:[236,230,240], fontStyle:'bold', textColor:20}}]);
+    g.rows.forEach(function(r) { body.push(cols.map(function(c) { return cmLatin(r[c[0]]); })); });
+  });
+  doc.autoTable({head: [cols.map(function(c) { return cmLatin(c[1]); })], body: body, startY: 58, margin: {left:30, right:30, bottom:28},
+    styles: {fontSize: cols.length > 14 ? 6 : 7, cellPadding: 2.5, overflow: 'linebreak'}, headStyles: {fillColor:[123,30,58]},
+    didDrawPage: function() { doc.setFontSize(7); doc.setTextColor(120); doc.text('CellarMate  |  page ' + doc.internal.getNumberOfPages(), 30, doc.internal.pageSize.getHeight() - 12); }});
+  return doc;
+}
+function cmStamp() { return new Date().toISOString().slice(0, 10); }
+const cmSel = {background:C.bg, color:C.text, border:'1px solid ' + C.cardBorder, borderRadius:8, padding:'8px 8px', fontSize:13, width:'100%', outline:'none'};
+const cmLbl = {fontSize:10, fontWeight:700, color:C.textDim, letterSpacing:1, textTransform:'uppercase', display:'block', marginBottom:4};
+function cmSeg(opts, cur, set) {
+  return cmE('div', {style:{display:'flex', border:'1px solid ' + C.cardBorder, borderRadius:8, overflow:'hidden'}}, opts.map(function(o) {
+    return cmE('button', {key:o[0], onClick:function(){ set(o[0]); }, style:{flex:1, background:cur === o[0] ? C.accent : C.bg, color:cur === o[0] ? '#fff' : C.textMuted, border:'none', padding:'8px 6px', fontSize:12, fontWeight:700, cursor:'pointer'}}, o[1]);
+  }));
+}
+function cmBtn(label, onClick, primary, disabled) {
+  return cmE('button', {onClick:onClick, disabled:!!disabled, style:{flex:1, background:primary ? C.accent : C.card, color:primary ? '#fff' : C.accentLight, border:'1px solid ' + (primary ? C.accent : C.cardBorder), borderRadius:10, padding:'10px 8px', fontSize:13, fontWeight:700, cursor:disabled ? 'not-allowed' : 'pointer', opacity:disabled ? 0.5 : 1}}, label);
+}
+function cmBar(rows) {
+  const n = rows.length || 1;
+  return cmE('div', {style:{display:'flex', height:6, borderRadius:4, overflow:'hidden', background:C.bg, marginTop:6}}, CM_CATS.map(function(c) {
+    const k = rows.filter(function(r) { return r.cat === c[0]; }).length;
+    return k ? cmE('div', {key:c[0], style:{width:(100 * k / n) + '%', background:c[2]}}) : null;
+  }));
+}
+function cmUniq(a) { return Array.from(new Set(a)); }
+
+function CmVintagePanel(props) {
+  const st = React.useState(null), rows = st[0], setRows = st[1];
+  const sv = React.useState('2026'), v = sv[0], setV = sv[1];
+  const sm = React.useState('var'), mode = sm[0], setMode = sm[1];
+  React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function() { if (live) setRows([]); }); return function() { live = false; }; }, []);
+  if (!rows || !rows.length) return null;
+  const base = rows.filter(function(r) { return v === 'all' || String(r.v) === v; });
+  const open = function(preset) { CM_PRESET = preset; props.go(props.SCREENS.reports, props.SCREENS.dash); };
+  const grams = base.reduce(function(s, r) { return s + (r.g || 0); }, 0);
+  let tiles;
+  if (mode === 'var') {
+    tiles = cmUniq(base.map(function(r) { return r.var; })).map(function(name) { return [name, base.filter(function(r) { return r.var === name; })]; }).sort(function(a, b) { return b[1].length - a[1].length; }).map(function(t) {
+      const cnt = function(c) { return t[1].filter(function(r) { return r.cat === c; }).length; };
+      return cmE('div', {key:t[0], onClick:function(){ open({v:v, variety:t[0]}); }, style:{background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:12, padding:'11px 12px', cursor:'pointer'}},
+        cmE('div', {style:{display:'flex', justifyContent:'space-between', alignItems:'baseline'}}, cmE('span', {style:{fontWeight:700, fontSize:13}}, t[0]), cmE('span', {style:{fontWeight:800, fontSize:18}}, t[1].length)),
+        cmBar(t[1]),
+        cmE('div', {style:{fontSize:10, color:C.textDim, marginTop:5}}, cnt('add') + ' add · ' + cnt('test') + ' test · ' + cnt('hold') + ' hold · ' + cnt('decide') + ' decide'));
+    });
+  } else {
+    tiles = CM_CATS.map(function(c) {
+      const rs = base.filter(function(r) { return r.cat === c[0]; });
+      const top = cmUniq(rs.map(function(r) { return r.var; })).map(function(n) { return n + ' ' + rs.filter(function(r) { return r.var === n; }).length; }).slice(0, 3).join(' · ');
+      return cmE('div', {key:c[0], onClick:function(){ open({v:v, iss:'cat:' + c[0]}); }, style:{background:C.card, border:'1px solid ' + c[2] + '55', borderRadius:12, padding:'11px 12px', cursor:'pointer'}},
+        cmE('div', {style:{display:'flex', justifyContent:'space-between', alignItems:'baseline'}}, cmE('span', {style:{fontWeight:700, fontSize:13, color:c[2]}}, c[1]), cmE('span', {style:{fontWeight:800, fontSize:18}}, rs.length)),
+        cmE('div', {style:{fontSize:10, color:C.textDim, marginTop:5}}, top || 'none'));
+    });
+  }
+  return cmE('div', {style:{marginBottom:16}},
+    cmE('div', {style:{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}},
+      cmE('div', {style:{fontSize:11, fontWeight:700, color:C.textDim, letterSpacing:1.1, textTransform:'uppercase'}}, 'Vintage & Varietal Overview'),
+      cmE('span', {onClick:function(){ open({v:v}); }, style:{fontSize:12, color:C.accentLight, fontWeight:700, cursor:'pointer'}}, 'Reports ›')),
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'1.3fr 1fr', gap:8, marginBottom:8}}, cmSeg([['2026','2026'],['2025','2025'],['all','Both']], v, setV), cmSeg([['var','Varietal'],['iss','Issue']], mode, setMode)),
+    cmE('div', {style:{fontSize:12, color:C.textMuted, marginBottom:8}}, base.length + ' barrels · ' + base.filter(function(r) { return r.g != null; }).length + ' need SO2 (' + grams + ' g)'),
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}, tiles));
+}
+
+function CmReportsScreen(props) {
+  const p0 = CM_PRESET || {}; CM_PRESET = null;
+  const sTab = React.useState('status'), tab = sTab[0], setTab = sTab[1];
+  const sRows = React.useState(null), rows = sRows[0], setRows = sRows[1];
+  const sErr = React.useState(''), err = sErr[0], setErr = sErr[1];
+  const sV = React.useState(p0.v || '2026'), v = sV[0], setV = sV[1];
+  const sVar = React.useState(p0.variety || 'all'), variety = sVar[0], setVariety = sVar[1];
+  const sIss = React.useState(p0.iss || 'all'), iss = sIss[0], setIss = sIss[1];
+  const sGrp = React.useState('group'), grp = sGrp[0], setGrp = sGrp[1];
+  const sQ = React.useState(''), q = sQ[0], setQ = sQ[1];
+  const sBusy = React.useState(''), busy = sBusy[0], setBusy = sBusy[1];
+  const sTbl = React.useState('vessels'), tbl = sTbl[0], setTbl = sTbl[1];
+  const sData = React.useState(null), data = sData[0], setData = sData[1];
+  const sDq = React.useState(''), dq = sDq[0], setDq = sDq[1];
+  React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function(e) { if (live) { setRows([]); setErr(e.message); } }); return function() { live = false; }; }, []);
+  React.useEffect(function() { if (tab !== 'data') return; let live = true; setData(null); cmFetch(tbl).then(function(r) { if (live) setData(r); }).catch(function(e) { if (live) { setData([]); setErr(e.message); } }); return function() { live = false; }; }, [tab, tbl]);
+  const run = function(label, fn) { setBusy(label); setErr(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }).then(function() { setBusy(''); }); };
+  const tabs = cmE('div', {style:{marginBottom:12}}, cmSeg([['status','Cellar status'],['data','All data tables']], tab, setTab));
+  const errBox = err ? cmE('div', {style:{background:C.redDim, border:'1px solid ' + C.red, borderRadius:8, padding:'10px 12px', color:C.red, fontSize:12, marginBottom:12, fontWeight:600}}, err) : null;
+  const busyBox = busy ? cmE('div', {style:{fontSize:12, color:C.accentLight, marginBottom:10}}, busy) : null;
+
+  if (tab === 'data') {
+    const all = data || [];
+    const cols = cmCols(all);
+    const shown = dq ? all.filter(function(r) { return cols.some(function(c) { return String(r[c] == null ? '' : r[c]).toLowerCase().indexOf(dq.toLowerCase()) !== -1; }); }) : all;
+    const label = (CM_TABLE_LIST.filter(function(t) { return t[0] === tbl; })[0] || [tbl, tbl])[1];
+    const clean = function(rs, cs) { return rs.map(function(r) { const o = {}; cs.forEach(function(c) { o[c] = r[c]; }); return o; }); };
+    return cmE(React.Fragment, null, tabs, errBox,
+      cmE('div', {style:{marginBottom:10}}, cmE('label', {style:cmLbl}, 'Table'), cmE('select', {value:tbl, onChange:function(e){ setTbl(e.target.value); setDq(''); }, style:cmSel}, CM_TABLE_LIST.map(function(t) { return cmE('option', {key:t[0], value:t[0]}, t[1]); }))),
+      cmE('div', {style:{marginBottom:10}}, cmE('input', {value:dq, onChange:function(e){ setDq(e.target.value); }, placeholder:'Search this table', style:cmSel})),
+      cmE('div', {style:{display:'flex', gap:8, marginBottom:8}},
+        cmBtn('Excel', function(){ run('Building Excel file…', async function() { const wb = await cmXlsxBook([{name:label, cols:cols, rows:clean(shown, cols)}]); XLSX.writeFile(wb, 'CellarMate_' + tbl + '_' + cmStamp() + '.xlsx'); }); }, true, !shown.length || !!busy),
+        cmBtn('PDF', function(){ run('Building PDF…', async function() { const doc = await cmPdfDoc(label, shown.length + ' rows  |  exported ' + cmStamp(), cols.map(function(c) { return [c, c]; }), [{rows:shown}]); doc.save('CellarMate_' + tbl + '_' + cmStamp() + '.pdf'); }); }, false, !shown.length || !!busy)),
+      cmE('div', {style:{display:'flex', gap:8, marginBottom:12}},
+        cmBtn('Excel workbook of every table', function(){ run('Loading all tables…', async function() { const sheets = []; for (let i = 0; i < CM_TABLE_LIST.length; i++) { const rs = await cmFetch(CM_TABLE_LIST[i][0]); const cs = cmCols(rs); sheets.push({name:CM_TABLE_LIST[i][1], cols:cs, rows:clean(rs, cs)}); } const wb = await cmXlsxBook(sheets); XLSX.writeFile(wb, 'CellarMate_all_data_' + cmStamp() + '.xlsx'); }); }, false, !!busy)),
+      busyBox,
+      cmE('div', {style:{fontSize:12, color:C.textMuted, marginBottom:8}}, data ? shown.length + ' of ' + all.length + ' rows' + (shown.length > 100 ? ' (first 100 shown; exports include all)' : '') : 'Loading…'),
+      cmE('div', {style:{overflowX:'auto', border:'1px solid ' + C.cardBorder, borderRadius:10}},
+        cmE('table', {style:{borderCollapse:'collapse', fontSize:11, whiteSpace:'nowrap'}},
+          cmE('thead', null, cmE('tr', null, cols.map(function(c) { return cmE('th', {key:c, style:{textAlign:'left', padding:'6px 8px', background:C.card, color:C.textDim, borderBottom:'1px solid ' + C.cardBorder, position:'sticky', top:0}}, c); }))),
+          cmE('tbody', null, shown.slice(0, 100).map(function(r, i) { return cmE('tr', {key:i}, cols.map(function(c) { const s = r[c] == null ? '' : String(r[c]); return cmE('td', {key:c, title:s, style:{padding:'5px 8px', borderBottom:'1px solid ' + C.cardBorder, color:C.text, maxWidth:220, overflow:'hidden', textOverflow:'ellipsis'}}, s); })); })))));
+  }
+
+  const base = (rows || []).filter(function(r) { return v === 'all' || String(r.v) === v; });
+  const vars = cmUniq(base.map(function(r) { return r.var; })).sort();
+  const groups = cmUniq(base.map(function(r) { return r.group; })).sort();
+  const passIss = function(r) { return iss === 'all' || (iss.indexOf('cat:') === 0 ? r.cat === iss.slice(4) : iss === 'flag:ph' ? (r.ph != null && r.ph >= 3.8) : iss === 'flag:tart' ? !!r.tart : r.group === iss); };
+  const list = base.filter(function(r) {
+    if (variety !== 'all' && r.var !== variety) return false;
+    if (!passIss(r)) return false;
+    if (q && (r.b + ' ' + r.lot + ' ' + r.who + ' ' + r.action + ' ' + r.group + ' ' + r.var).toLowerCase().indexOf(q.toLowerCase()) === -1) return false;
+    return true;
+  });
+  const grams = list.reduce(function(s, r) { return s + (r.g || 0); }, 0);
+  let five = 0, two = 0;
+  list.forEach(function(r) { if (r.tab) String(r.tab).split('+').forEach(function(pt) { const m = pt.match(/(\d+)\s*[×x]\s*(\d+)/); if (m) { if (m[2] === '5') five += +m[1]; else if (m[2] === '2') two += +m[1]; } }); });
+  const keyOf = function(r) { return grp === 'none' ? '' : (r[grp] || '(blank)'); };
+  const gkeys = cmUniq(list.map(keyOf));
+  if (grp === 'group') { const rank = {add:0, test:1, hold:2, decide:3, ok:4, other:5}; gkeys.sort(function(a, b) { return (rank[cmCat(a)] - rank[cmCat(b)]) || (a < b ? -1 : 1); }); } else gkeys.sort();
+  const grouped = gkeys.map(function(k) { return {title:k, rows:list.filter(function(r) { return keyOf(r) === k; })}; });
+  const filt = 'Vintage ' + (v === 'all' ? '2025 + 2026' : v) + '  |  Varietal ' + (variety === 'all' ? 'all' : variety) + '  |  Issue ' + (iss === 'all' ? 'all' : iss.replace('cat:', '').replace('flag:', '')) + (q ? '  |  Search ' + q : '');
+  const fileBase = 'CellarMate_status_' + (v === 'all' ? 'all' : v) + (variety === 'all' ? '' : '_' + variety.replace(/[^A-Za-z]/g, '')) + '_' + cmStamp();
+  const doXlsx = function() { run('Building Excel file…', async function() {
+    const cs = CM_STATUS_COLS.map(function(c) { return c[1]; });
+    const toRows = function(rs) { return rs.map(function(r) { const o = {}; CM_STATUS_COLS.forEach(function(c) { o[c[1]] = r[c[0]]; }); return o; }); };
+    const sum = [{Item:'Filters', Value:filt}, {Item:'Barrels', Value:list.length}, {Item:'Barrels needing SO2', Value:list.filter(function(r) { return r.g != null; }).length}, {Item:'SO2 grams total', Value:grams}, {Item:'5 g tablets', Value:five}, {Item:'2 g tablets', Value:two}];
+    grouped.forEach(function(g) { if (g.title) sum.push({Item:g.title, Value:g.rows.length}); });
+    const wb = await cmXlsxBook([{name:'Summary', cols:['Item','Value'], rows:sum}, {name:'Barrels', cols:cs, rows:toRows(list)}]);
+    XLSX.writeFile(wb, fileBase + '.xlsx'); }); };
+  const doPdf = function() { run('Building PDF…', async function() {
+    const cols = CM_STATUS_COLS.filter(function(c) { return c[0] !== 'group' && (v !== '2026' || (c[0] !== 'last' && c[0] !== 'est')) && (v === 'all' || c[0] !== 'v'); });
+    const doc = await cmPdfDoc('Cellar status report', filt + '  |  ' + list.length + ' barrels, ' + grams + ' g SO2 (' + five + ' x 5 g, ' + two + ' x 2 g)  |  ' + cmStamp(), cols,
+      grouped.map(function(g) { return {title:g.title ? g.title + '  (' + g.rows.length + ')' : '', rows:g.rows}; }));
+    doc.save(fileBase + '.pdf'); }); };
+  const tile = function(n, l, s, color) { return cmE('div', {key:l, style:{background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:12, padding:'10px 8px', textAlign:'center'}}, cmE('div', {style:{fontSize:20, fontWeight:800, color:color || C.text}}, n), cmE('div', {style:{fontSize:10, color:C.textDim, fontWeight:600, marginTop:2}}, l), s ? cmE('div', {style:{fontSize:10, color:C.textDim, marginTop:1}}, s) : null); };
+  const card = function(r) {
+    return cmE('div', {key:r.v + '-' + r.b, style:{background:C.card, border:'1px solid ' + C.cardBorder, borderLeft:'3px solid ' + CM_CAT_COLOR[r.cat], borderRadius:10, padding:'9px 12px', marginBottom:6}},
+      cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}},
+        cmE('div', {style:{minWidth:0}}, cmE('span', {style:{fontWeight:800, fontSize:14}}, r.b), v === 'all' ? cmE('span', {style:{fontSize:10, color:C.accentLight, marginLeft:6}}, "'" + String(r.v).slice(2)) : null, cmE('span', {style:{fontSize:12, color:C.textMuted, marginLeft:8}}, r.var)),
+        r.g != null ? cmE('span', {style:{fontSize:12, fontWeight:800, color:C.red, whiteSpace:'nowrap'}}, r.g + ' g' + (r.tab ? ' (' + r.tab + ')' : '')) : null),
+      cmE('div', {style:{fontSize:11, color:C.textDim, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, r.lot + (r.who ? ' · ' + r.who : '')),
+      cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}},
+        cmE('span', {style:{color:r.ph != null && r.ph >= 3.8 ? C.orange : C.textMuted, fontWeight:r.ph != null && r.ph >= 3.8 ? 700 : 400}}, 'pH ' + (r.ph == null ? '–' : r.ph.toFixed(2)) + (r.rise != null ? ' (' + (r.rise >= 0 ? '+' : '') + r.rise.toFixed(2) + ')' : '')),
+        ' · malic ' + (r.malic == null ? '–' : r.malic) + ' · ' + (r.mlf || 'MLF ?') + (r.est != null ? ' · free SO2 ~' + r.est : '') + (r.target != null ? ' · target ' + r.target : '') + (r.tart ? ' · tartaric ' + r.tart : '')),
+      cmE('div', {style:{fontSize:12, fontWeight:700, color:CM_CAT_COLOR[r.cat], marginTop:3}}, r.action));
+  };
+  return cmE(React.Fragment, null, tabs, errBox,
+    rows === null ? cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading cellar data…') : null,
+    rows && !rows.length && !err ? cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'No barrel status rows are loaded for this winery yet.') : null,
+    rows && rows.length ? cmE(React.Fragment, null,
+      cmE('div', {style:{marginBottom:10}}, cmSeg([['2026','2026'],['2025','2025'],['all','Both']], v, function(x){ setV(x); setVariety('all'); setIss('all'); })),
+      cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}},
+        cmE('div', null, cmE('label', {style:cmLbl}, 'Varietal'), cmE('select', {value:variety, onChange:function(e){ setVariety(e.target.value); }, style:cmSel}, [cmE('option', {key:'all', value:'all'}, 'All varietals')].concat(vars.map(function(x) { return cmE('option', {key:x, value:x}, x + ' (' + base.filter(function(r) { return r.var === x; }).length + ')'); })))),
+        cmE('div', null, cmE('label', {style:cmLbl}, 'Issue'), cmE('select', {value:iss, onChange:function(e){ setIss(e.target.value); }, style:cmSel},
+          [cmE('option', {key:'all', value:'all'}, 'All issues')].concat(CM_CATS.map(function(c) { return cmE('option', {key:c[0], value:'cat:' + c[0]}, 'Any: ' + c[1] + ' (' + base.filter(function(r) { return r.cat === c[0]; }).length + ')'); }))
+            .concat(groups.map(function(g) { return cmE('option', {key:g, value:g}, g + ' (' + base.filter(function(r) { return r.group === g; }).length + ')'); }))
+            .concat([cmE('option', {key:'fph', value:'flag:ph'}, 'Flag: pH 3.80 or higher'), cmE('option', {key:'ft', value:'flag:tart'}, 'Flag: tartaric noted')])))),
+      cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10}},
+        cmE('div', null, cmE('label', {style:cmLbl}, 'Group by'), cmE('select', {value:grp, onChange:function(e){ setGrp(e.target.value); }, style:cmSel}, [['group','Issue'],['var','Varietal'],['lot','Lot / vineyard'],['who','Owner / location'],['none','No grouping']].map(function(o) { return cmE('option', {key:o[0], value:o[0]}, o[1]); }))),
+        cmE('div', null, cmE('label', {style:cmLbl}, 'Search'), cmE('input', {value:q, onChange:function(e){ setQ(e.target.value); }, placeholder:'barrel, lot, action', style:cmSel}))),
+      cmE('div', {style:{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6, marginBottom:10}},
+        tile(list.length, 'BARRELS', 'of ' + base.length), tile(list.filter(function(r) { return r.g != null; }).length, 'NEED SO2', grams + ' g', C.red), tile(five + ' / ' + two, 'TABLETS', '5 g / 2 g'), tile(list.filter(function(r) { return r.ph != null && r.ph >= 3.8; }).length, 'pH ≥ 3.80', null, C.orange)),
+      cmE('div', {style:{display:'flex', gap:8, marginBottom:6}}, cmBtn('PDF report', doPdf, true, !list.length || !!busy), cmBtn('Excel report', doXlsx, true, !list.length || !!busy)),
+      busyBox,
+      cmE('div', {style:{fontSize:10, color:C.textDim, marginBottom:12}}, 'Exports use the filters above. Reds from Estate, Stiling and Sawyer count as Pinot Noir; lots with no variety written are Unknown.'),
+      !list.length ? cmE('div', {style:{textAlign:'center', color:C.textDim, padding:24}}, 'No barrels match these filters.') : null,
+      grouped.map(function(g) {
+        const gg = g.rows.reduce(function(s, r) { return s + (r.g || 0); }, 0);
+        return cmE('div', {key:g.title || 'all', style:{marginBottom:14}},
+          g.title ? cmE('div', {style:{display:'flex', alignItems:'center', gap:8, marginBottom:6}}, cmE('span', {style:{fontSize:12, fontWeight:800, color:grp === 'group' ? CM_CAT_COLOR[cmCat(g.title)] : C.text}}, g.title), cmE('span', {style:{fontSize:11, color:C.textDim}}, g.rows.length + (gg ? ' · ' + gg + ' g' : ''))) : null,
+          g.rows.map(card));
+      })) : null);
+}
+
 async function getSupaProfile(userId) {
   const { data } = await supa.from('profiles').select('*').eq('id', userId).single();
   return data;
@@ -4181,7 +4463,7 @@ function App() {
   const closeCheckModal=()=>{setCheckModal(null);};
 
     const currentLot = lots.find(l=>l.id===selectedLot?.id)||selectedLot;
-  const titleMap={[SCREENS.dash]:"Cellar Overview",[SCREENS.log]:"Quick Log",[SCREENS.lots]:"All Lots",[SCREENS.detail]:currentLot?.name||"Detail",[SCREENS.tools]:"Lab Tools",[SCREENS.alerts]:"Alert Schedule",[SCREENS.map]:"Barrel Map",[SCREENS.transfer]:"Transfer / Rack",[SCREENS.settings]:"Settings",[SCREENS.report]:"Barrel Report",[SCREENS.blocks]:"Vineyard Blocks",[SCREENS.health]:"Cellar Health"};
+  const titleMap={[SCREENS.dash]:"Cellar Overview",[SCREENS.log]:"Quick Log",[SCREENS.lots]:"All Lots",[SCREENS.detail]:currentLot?.name||"Detail",[SCREENS.tools]:"Lab Tools",[SCREENS.alerts]:"Alert Schedule",[SCREENS.map]:"Barrel Map",[SCREENS.transfer]:"Transfer / Rack",[SCREENS.settings]:"Settings",[SCREENS.report]:"Barrel Report",[SCREENS.blocks]:"Vineyard Blocks",[SCREENS.health]:"Cellar Health",[SCREENS.reports]:"Reports"};
 
     return(
     React.createElement("div", {style: {background:C.bg,minHeight:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative",paddingBottom:84}}, !activeWinery&&(
@@ -4224,7 +4506,7 @@ function App() {
             )))
       ), React.createElement("div", {style: {background:C.card,borderBottom:`1px solid ${C.cardBorder}`,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}, React.createElement("div", null, React.createElement("div", {style: {fontSize:10,color:C.textDim,letterSpacing:1.2,textTransform:"uppercase",fontWeight:700}}, activeWinery?.name||"Cellar", "·", new Date().getFullYear()), React.createElement("div", {style: {fontSize:19,fontWeight:800}}, titleMap[screen]||"Cellar")), React.createElement("div", {style: {display:"flex",alignItems:"center",gap:8}}, screen!==SCREENS.dash&&React.createElement("button", {onClick: ()=>go(prevScreen||SCREENS.dash), style: {background:C.cardBorder,border:"none",color:C.textMuted,cursor:"pointer",fontSize:13,fontWeight:600,padding:"7px 14px",borderRadius:8}}, "← Back"), React.createElement("button", {onClick: ()=>go(SCREENS.settings,screen), title: "Settings", style: {width:34,height:34,borderRadius:8,background:screen===SCREENS.settings?C.accent:C.cardBorder,border:"none",color:screen===SCREENS.settings?"#fff":C.textMuted,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}, "⚙"), activeUser&&React.createElement("button", {onClick: ()=>setActiveUserId(null), title: `${activeUser.name} — tap to switch`, style: {width:36,height:36,borderRadius:"50%",background:activeUser.color,border:"none",fontSize:12,fontWeight:900,color:"#fff",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}, activeUser.initials))), React.createElement("div", {style: {padding:"16px 14px"}}, screen===SCREENS.dash&&(React.createElement(React.Fragment, null, React.createElement("div", {style: {display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18}}, [{label:"Gallons",value:totalGal.toLocaleString(),color:C.text,onClick:()=>go(SCREENS.lots,SCREENS.dash)},{label:"Aging",value:aging.length,color:C.blue,onClick:()=>{setLotsFilter("aging");go(SCREENS.lots,SCREENS.dash);}},{label:"Alerts",value:alerts.length+(scheduleOverdue.length),color:(alerts.length+scheduleOverdue.length)?C.red:C.green,onClick:()=>go(SCREENS.alerts,SCREENS.dash)}].map(s=>(
               React.createElement("div", {key: s.label, onClick: s.onClick, style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:"13px 10px",textAlign:"center",cursor:"pointer",transition:"all 0.2s"}}, React.createElement("div", {style: {fontSize:24,fontWeight:800,color:s.color}}, s.value), React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:2,fontWeight:500}}, s.label))
-            ))), scheduleOverdue.length>0&&(React.createElement(React.Fragment, null, React.createElement(SectionLabel, null, "📅 Scheduled Tasks Overdue"), scheduleOverdue.slice(0,3).map((item,i)=>(
+            ))), React.createElement(CmVintagePanel, {go: go, SCREENS: SCREENS}), scheduleOverdue.length>0&&(React.createElement(React.Fragment, null, React.createElement(SectionLabel, null, "📅 Scheduled Tasks Overdue"), scheduleOverdue.slice(0,3).map((item,i)=>(
               React.createElement("div", {key: i, style: {background:C.card,border:`1px solid ${C.orange}44`,borderRadius:12,padding:"12px 15px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}, React.createElement("div", null, React.createElement("div", {style: {fontWeight:700,fontSize:14}}, item.type.icon, item.type.label), React.createElement("div", {style: {fontSize:12,color:C.textMuted,marginTop:2}}, item.lot.name, "·", Math.abs(item.remaining), "d overdue")), React.createElement("span", {onClick: ()=>go(SCREENS.alerts,SCREENS.dash), style: {color:C.orange,fontSize:13,cursor:"pointer",fontWeight:600}}, "Manage ›"))
             )), scheduleOverdue.length>3&&React.createElement("div", {style: {fontSize:12,color:C.textDim,textAlign:"center",marginBottom:10}}, "+", scheduleOverdue.length-3, "more overdue"), React.createElement("div", {style: {marginBottom:10}}))), alerts.length>0&&(React.createElement(React.Fragment, null, React.createElement(SectionLabel, null, "⚠ Wine Issues"), alerts.map(lot=>(
               React.createElement("div", {key: lot.id, onClick: ()=>openDetail(lot), style: {background:C.card,border:`1px solid ${C.red}44`,borderRadius:12,padding:"13px 15px",marginBottom:10,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}, React.createElement("div", {style: {display:"flex",alignItems:"center",gap:6}}, React.createElement(Dot, {status: lot.status}), React.createElement("span", {style: {fontWeight:700,fontSize:15}}, lot.name), lot.vintage && React.createElement("span", {style: {background:C.accentDim,color:C.accentLight,fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:99}}, "'", String(lot.vintage).slice(2)), lot.alert&&React.createElement("span", {style: {marginLeft:4}}, React.createElement(AlertBadge, {alert: lot.alert}))), React.createElement("div", {style: {fontSize:12,color:C.textMuted,marginTop:3}}, lot.vineyard, "·", lot.varietal, lot.clone?` · ${lot.clone}`:""), React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:2}}, lot.location||lot.type, "·", lot.gallons, "gal"), React.createElement("div", {style: {color:C.textDim,fontSize:22}}, "›"))
@@ -4315,7 +4597,7 @@ screen===SCREENS.lots&&(React.createElement(React.Fragment, null, lotsFilter && 
               }), React.createElement("div", {style: {fontSize:12,color:C.textDim,background:C.bg,borderRadius:8,padding:"10px 12px",lineHeight:1.5,marginTop:4}}, "💡 Tap \"Done ✓\" to reset the timer. Adjust intervals based on wine condition — high-risk barrels should be topped more frequently.")), detailTab==="ph"&&React.createElement(PHTrackingTab, {lot: lot}), detailTab==="history"&&(React.createElement(React.Fragment, null, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:10}}, "Log History (", lot.logs.length, ")"), [...lot.logs].reverse().map((log,i)=>(
                 React.createElement("div", {key: i, style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:"13px 15px",marginBottom:10}}, React.createElement("div", {style: {fontWeight:700,fontSize:14,color:C.accentLight,marginBottom:8}}, log.date), React.createElement("div", {style: {display:"flex",gap:14,flexWrap:"wrap",marginBottom:log.notes?8:0}}, log.brix!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.brix, "°"), "Brix"), log.ph!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.ph), "pH"), log.ta!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.ta), "TA"), log.so2Free!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.so2Free), "SO₂"), log.temp!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.temp, "°F")), log.malic!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.malic), "Malic"), log.yan!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.yan), "YAN")), log.type==="transfer"&&React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.teal,marginBottom:4}}, "🔀 Transfer"), log.notes&&React.createElement("div", {style: {fontSize:12,color:C.textDim,fontStyle:"italic"}}, "\"", log.notes, "\""), log.user&&React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:4}}, "by", log.user))
               )), React.createElement("button", {onClick: ()=>{setForm(f=>({...f,lotId:String(lot.id)}));go(SCREENS.log,SCREENS.detail);}, style: {width:"100%",background:`linear-gradient(135deg,${C.accent},#6d28d9)`,border:"none",borderRadius:14,padding:14,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",marginBottom:8}}, "+ Log New Reading"), can(activeUser,"transfer") && React.createElement("button", {onClick: ()=>{setTransferLot(lot);go(SCREENS.transfer,SCREENS.detail)}, style: {width:"100%",background:C.card,border:`1px solid ${C.teal}`,borderRadius:14,padding:13,color:C.teal,fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:8}}, "🔀 Transfer / Rack Wine"), React.createElement("button", {onClick: ()=>{setReportLot(lot);go(SCREENS.report,SCREENS.detail)}, style: {width:"100%",background:C.card,border:`1px solid ${C.blue}`,borderRadius:14,padding:13,color:C.blue,fontSize:14,fontWeight:700,cursor:"pointer"}}, "📄 Print Barrel Report")))));
-        })(), screen===SCREENS.tools&&React.createElement(ToolsScreen, {lots: lots, members: activeWinery ? activeWinery.members : [], onSelect: (l)=>{setLot(l);go(SCREENS.detail,SCREENS.tools);}}), screen===SCREENS.alerts&&React.createElement(AlertsScreen, {lots: lots, setLots: setLots, onOpenCheckModal: openCheckModal}), screen===SCREENS.transfer&&React.createElement(TransferScreen, {sourceLot: transferLot, lots: lots, setLots: setLots, activeUser: activeUser, onDone: ()=>go(SCREENS.lots,SCREENS.detail), onCancel: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.blocks&&React.createElement(BlocksScreen, {activeWinery: activeWinery, setWineries: setWineries}), screen===SCREENS.report&&React.createElement(ReportScreen, {lot: reportLot, activeWinery: activeWinery, onBack: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.health&&React.createElement(CellarHealthScreen, {lots: lots, settings: settings, go: go, SCREENS: SCREENS}), screen===SCREENS.settings&&React.createElement(SettingsScreen, {activeWinery: activeWinery, setWineries: setWineries, lots: lots, setLots: setLots, wineries: wineries}), pinEntry.wineryId && (
+        })(), screen===SCREENS.tools&&React.createElement(ToolsScreen, {lots: lots, members: activeWinery ? activeWinery.members : [], onSelect: (l)=>{setLot(l);go(SCREENS.detail,SCREENS.tools);}}), screen===SCREENS.alerts&&React.createElement(AlertsScreen, {lots: lots, setLots: setLots, onOpenCheckModal: openCheckModal}), screen===SCREENS.transfer&&React.createElement(TransferScreen, {sourceLot: transferLot, lots: lots, setLots: setLots, activeUser: activeUser, onDone: ()=>go(SCREENS.lots,SCREENS.detail), onCancel: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.blocks&&React.createElement(BlocksScreen, {activeWinery: activeWinery, setWineries: setWineries}), screen===SCREENS.report&&React.createElement(ReportScreen, {lot: reportLot, activeWinery: activeWinery, onBack: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.reports&&React.createElement(CmReportsScreen, {go: go, SCREENS: SCREENS}), screen===SCREENS.health&&React.createElement(CellarHealthScreen, {lots: lots, settings: settings, go: go, SCREENS: SCREENS}), screen===SCREENS.settings&&React.createElement(SettingsScreen, {activeWinery: activeWinery, setWineries: setWineries, lots: lots, setLots: setLots, wineries: wineries}), pinEntry.wineryId && (
         React.createElement("div", {style: {position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}, React.createElement("div", {style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:20,padding:28,width:"100%",maxWidth:340}}, React.createElement("div", {style: {fontSize:16,fontWeight:800,textAlign:"center",marginBottom:20}}, "Enter Winery Passcode"), React.createElement("div", {style: {display:"flex",gap:10,justifyContent:"center",marginBottom:20}}, [0,1,2,3].map(i=>(
                 React.createElement("div", {key: i, style: {width:50,height:60,borderRadius:10,background:C.bg,border:`2px solid ${pinEntry.value.length===i?C.accent:C.cardBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:800,color:C.text}}, pinEntry.value[i]?"●":"")
               ))), React.createElement("div", {style: {display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:10}}, [1,2,3,4,5,6,7,8,9].map(n=>(
@@ -4356,7 +4638,7 @@ screen===SCREENS.lots&&(React.createElement(React.Fragment, null, lotsFilter && 
           {id:SCREENS.log,   icon:"+", label:"Log"},
           {id:SCREENS.lots,  icon:"≡", label:"Lots"},
           {id:SCREENS.tools, icon:"🧪",label:"Tools"},
-          {id:SCREENS.health,icon:"🩺",label:"Health"},{id:SCREENS.alerts,icon:"📅",label:"Schedule", badge: scheduleOverdue.length},
+          {id:SCREENS.health,icon:"🩺",label:"Health"},{id:SCREENS.reports,icon:"📊",label:"Reports"},{id:SCREENS.alerts,icon:"📅",label:"Schedule", badge: scheduleOverdue.length},
         ].map(nav=>(
           React.createElement("button", {key: nav.id, onClick: ()=>go(nav.id,SCREENS.dash), style: {background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:screen===nav.id?C.accentLight:C.textDim,fontWeight:screen===nav.id?700:400,padding:"4px 8px",position:"relative"}}, React.createElement("span", {style: {fontSize:nav.id===SCREENS.log?24:18,lineHeight:1}}, nav.icon), React.createElement("span", {style: {fontSize:10}}, nav.label), nav.badge>0&&React.createElement("span", {style: {position:"absolute",top:0,right:2,background:C.red,color:"#fff",fontSize:9,fontWeight:800,borderRadius:99,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}, nav.badge))
         ))))
