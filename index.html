@@ -3605,7 +3605,7 @@ function SuperAdminScreen({ wineries, accounts, setAccounts, onViewWinery, onLog
 // ── Cellar Health Dashboard ──────────────────────────────────────────────────
 const CellarHealthScreen = ({lots, settings, go, SCREENS}) => {
   const s = settings || DEFAULT_SETTINGS;
-  const activeLots = lots.filter(l => l.status==='aging'||l.status==='barrel'||l.status==='active'||l.status==='done'&&l.logs&&l.logs.length>0);
+  const activeLots = lots.filter(l => l.status==='aging'||l.status==='barrel'||l.status==='active'||(l.status==='done'&&l.logs&&l.logs.length>0));
 
   const healthData = activeLots.map(lot => {
     const logs = lot.logs || [];
@@ -3613,14 +3613,14 @@ const CellarHealthScreen = ({lots, settings, go, SCREENS}) => {
     const ph = last ? (last.ph||null) : null;
     const so2 = last ? (last.so2Free||null) : null;
     const daysSince = last ? Math.floor((Date.now() - new Date(last.date)) / 86400000) : null;
-    const isNewOak = (lot.vessel?.fill==='new')||(lot.vessel?.fill==='1st fill')||((lot.oak||'').toLowerCase().includes('new'));
-    let status='nodata', statusColor=C.textDim, statusBg=C.card, statusIcon='—', freeSO2Target=null, mSO2=null;
+    const isNewOak = (lot.vessel&&lot.vessel.fill==='new')||(lot.vessel&&lot.vessel.fill==='1st fill')||((lot.oak||'').toLowerCase().includes('new'));
+    let status='nodata', statusColor=C.textDim, statusBg=C.card, statusIcon='-', freeSO2Target=null, mSO2=null;
     if (so2!=null && ph!=null) {
       mSO2 = so2 / (1 + Math.pow(10, ph - 1.81));
       freeSO2Target = s.targetMolecularSO2 * (1 + Math.pow(10, ph - 1.81)) + (isNewOak ? s.newOakSO2Buffer : 0);
-      if (so2 < freeSO2Target * 0.6) { status='critical'; statusColor=C.red; statusBg=C.redDim; statusIcon='🚨'; }
-      else if (so2 < freeSO2Target) { status='warn'; statusColor=C.yellow; statusBg=C.yellowDim; statusIcon='⚠️'; }
-      else { status='ok'; statusColor=C.green; statusBg=C.greenDim; statusIcon='✓'; }
+      if (so2 < freeSO2Target * 0.6) { status='critical'; statusColor=C.red; statusBg=C.redDim; statusIcon='!!'; }
+      else if (so2 < freeSO2Target) { status='warn'; statusColor=C.yellow; statusBg=C.yellowDim; statusIcon='!'; }
+      else { status='ok'; statusColor=C.green; statusBg=C.greenDim; statusIcon='OK'; }
     } else if (last) { status='partial'; statusColor=C.yellow; statusBg=C.yellowDim; statusIcon='?'; }
     return {lot, last, ph, so2, daysSince, status, statusColor, statusBg, statusIcon, freeSO2Target, mSO2};
   });
@@ -3639,55 +3639,54 @@ const CellarHealthScreen = ({lots, settings, go, SCREENS}) => {
   const StatPill = (bg, border, numColor, num, lbl) =>
     React.createElement('div', {style:{flex:1,background:bg,border:'1px solid '+border,borderRadius:10,padding:'8px 6px',textAlign:'center'}},
       React.createElement('div', {style:{fontSize:20,fontWeight:800,color:numColor,lineHeight:1}}, num),
-      React.createElement('div', {style:{fontSize:9,color:numColor,fontWeight:700,marginTop:3}}, lbl)
+      React.createElement('div', {style:{fontSize:9,color:numColor,fontWeight:700,marginTop:2}}, lbl)
     );
 
   return React.createElement(React.Fragment, null,
     React.createElement('div', {style:{display:'flex',gap:8,marginBottom:16}},
-      StatPill(C.redDim, C.red+'44', C.red, cnt.critical, 'CRITICAL'),
-      StatPill(C.yellowDim, C.yellow+'44', C.yellow, cnt.warn, 'WARN'),
-      StatPill(C.greenDim, C.green+'44', C.green, cnt.ok, 'OK'),
+      StatPill(C.redDim, C.red, C.red, cnt.critical, 'CRITICAL'),
+      StatPill(C.yellowDim, C.yellow, C.yellow, cnt.warn, 'WARN'),
+      StatPill(C.greenDim, C.green, C.green, cnt.ok, 'OK'),
       StatPill(C.card, C.cardBorder, C.textDim, cnt.nodata, 'NO DATA')
     ),
     activeLots.length === 0 && React.createElement('div', {style:{textAlign:'center',padding:'40px 20px',color:C.textDim}},
-      React.createElement('div', {style:{fontSize:40,marginBottom:12}}, '📷
-),
+      React.createElement('div', {style:{fontSize:40,marginBottom:12}}, 'O'),
       React.createElement('div', {style:{fontSize:14,fontWeight:600}}, 'No active lots'),
       React.createElement('div', {style:{fontSize:12,marginTop:4}}, 'Lots in aging or barrel status will appear here')
     ),
     ...healthData.map(h => React.createElement('div', {key:h.lot.id,
-      style:{background:h.statusBg||C.card, border:'1px solid '+h.statusColor('44', borderRadius:12, padding:'12px 15px', marginBottom:10}},
+      style:{background:h.statusBg||C.card, border:'1px solid '+(h.statusColor||C.cardBorder), borderRadius:12, padding:'12px 15px', marginBottom:10}},
       React.createElement('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}},
         React.createElement('div', {style:{flex:1,minWidth:0}},
-          React.createElement('div', {style:{fontWeight:700,fontSize:14,color:C.text,marginBottom:1}}, h.statusIcon+% '+h.lot.name),
-          React.createElement('div', {style:{fontSize:11,color:C.textDim,overflow:' hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}},
-            (h.lot.varietal||'')+(h.lot.vintage?' · '+h.lot.vintage:'')+(h.lot.gallons?' · '+h.lot.gallons+' gal':''))
+          React.createElement('div', {style:{fontWeight:700,fontSize:14,color:C.text,marginBottom:1}}, '['+h.statusIcon+'] '+h.lot.name),
+          React.createElement('div', {style:{fontSize:11,color:C.textDim,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},
+            (h.lot.varietal||'')+(h.lot.vintage?' - '+h.lot.vintage:'')+(h.lot.gallons?' - '+h.lot.gallons+' gal':''))
         ),
-        React.createElement('button', {onClick:()=>go(SCREENS.log, SCREENS.health),
-          style:{background:C.accent,border:'none',borderRadius:8,padding:'5px 10px',color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer',marginLeft:8}}, 'Log')
+        React.createElement('button', {onClick:function(){go(SCREENS.log, SCREENS.health);},
+          style:{background:C.accent,border:'none',borderRadius:8,padding:'5px 10px',color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer',marginLeft:8,flexShrink:0}}, 'Log')
       ),
       h.last
         ? React.createElement('div', {style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,marginBottom:h.freeSO2Target!=null?4:0}},
             React.createElement('div', {style:{background:C.bg,borderRadius:8,padding:'6px 8px',textAlign:'center'}},
               React.createElement('div', {style:{fontSize:14,fontWeight:700,
                 color:h.so2!=null&&h.freeSO2Target!=null?(h.so2<h.freeSO2Target*0.6?C.red:h.so2<h.freeSO2Target?C.yellow:C.green):C.textDim}},
-                h.so2!=null?h.so2+' ppm':'—'),
-              React.createElement('div', {style:{fontSize:9,color:C.textDim,fontWeight:600,marginTop:2}}, 'FREE SO'+String.fromCharCode(8322))
+                h.so2!=null?h.so2+' ppm':'--'),
+              React.createElement('div', {style:{fontSize:9,color:C.textDim,fontWeight:600,marginTop:2}}, 'FREE SO2')
             ),
             React.createElement('div', {style:{background:C.bg,borderRadius:8,padding:'6px 8px',textAlign:'center'}},
-              React.createElement('div', {style:{fontSize:14,fontWeight:700,color:C.text}}, h.ph!=null?'pH '+h.ph:'—'),
+              React.createElement('div', {style:{fontSize:14,fontWeight:700,color:C.text}}, h.ph!=null?'pH '+h.ph:'--'),
               React.createElement('div', {style:{fontSize:9,color:C.textDim,fontWeight:600,marginTop:2}}, 'LAST pH')
             ),
             React.createElement('div', {style:{background:C.bg,borderRadius:8,padding:'6px 8px',textAlign:'center'}},
               React.createElement('div', {style:{fontSize:14,fontWeight:700,
                 color:h.daysSince!=null?(h.daysSince>s.so2CheckIntervalDays?C.red:h.daysSince>s.so2CheckIntervalDays*0.7?C.yellow:C.text):C.textDim}},
-                h.daysSince!=null?h.daysSince+'d ago':'—'),
+                h.daysSince!=null?h.daysSince+'d ago':'--'),
               React.createElement('div', {style:{fontSize:9,color:C.textDim,fontWeight:600,marginTop:2}}, 'LAST LOG')
             )
           )
-        : React.createElement('div', {style:{fontSize:12,color:C.textDim,fontStyle:'italic'}}, 'No readings logged yet — tap Log to add first'),
+        : React.createElement('div', {style:{fontSize:12,color:C.textDim,fontStyle:'italic'}}, 'No readings logged yet - tap Log to add first'),
       h.freeSO2Target!=null && React.createElement('div', {style:{fontSize:11,color:C.textDim,marginTop:3}},
-        'Target: '+h.freeSO2Target.toFixed(0)+' ppm free'+(h.mSO2!=null?' · Mol: '+h.mSO2.toFixed(2)+' ppm':''))
+        'Target: '+h.freeSO2Target.toFixed(0)+' ppm free'+(h.mSO2!=null?' | Mol: '+h.mSO2.toFixed(2)+' ppm':''))
     ))
   );
 };
