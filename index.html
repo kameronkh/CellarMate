@@ -3606,40 +3606,72 @@ function LoginScreen({ onLogin }) {
   const [pass, setPass]   = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mode, setMode]   = useState('login');
+  const [resetEmail, setResetEmail] = useState('');
   const iStyle = {width:'100%',background:C.bg,border:`1px solid ${C.cardBorder}`,color:C.text,borderRadius:8,padding:'11px 12px',fontSize:15,outline:'none'};
   const lStyle = {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:'uppercase',display:'block',marginBottom:8};
   async function submit(e) {
-    e.preventDefault();
-    setError(''); setLoading(true);
+    e.preventDefault(); setError(''); setLoading(true);
     const { error: authErr } = await supa.auth.signInWithPassword({ email: email.trim(), password: pass });
     if (authErr) { setError(authErr.message); setLoading(false); }
   }
-  return React.createElement('div', {style:{position:'fixed',inset:0,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}},
-    React.createElement('div', {style:{maxWidth:400,width:'100%'}},
-      React.createElement('div', {style:{textAlign:'center',marginBottom:32}},
-        React.createElement('div', {style:{fontSize:52,marginBottom:10}}, '\uD83C\uDF77'),
-        React.createElement('div', {style:{fontSize:28,fontWeight:900,color:C.text}}, 'CellarMate'),
-        React.createElement('div', {style:{fontSize:13,color:C.textMuted,marginTop:6}}, 'Tystrya Estate · Winery Management')
+  async function sendReset(e) {
+    e.preventDefault(); setError(''); setLoading(true);
+    const { error: authErr } = await supa.auth.resetPasswordForEmail(resetEmail.trim(), { redirectTo: window.location.origin });
+    setLoading(false);
+    if (authErr) { setError(authErr.message); } else { setMode('sent'); }
+  }
+  const hdr = React.createElement('div', {style:{textAlign:'center',marginBottom:32}},
+    React.createElement('div', {style:{fontSize:52,marginBottom:10}}, '🍷'),
+    React.createElement('div', {style:{fontSize:28,fontWeight:900,color:C.text}}, 'CellarMate'),
+    React.createElement('div', {style:{fontSize:13,color:C.textMuted,marginTop:6}}, 'Tystrya Estate · Winery Management')
+  );
+  const wrap = (...children) => React.createElement('div', {style:{position:'fixed',inset:0,background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}},
+    React.createElement('div', {style:{maxWidth:400,width:'100%'}}, hdr, ...children)
+  );
+  const errBox = error ? React.createElement('div', {style:{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:8,padding:'10px 12px',color:C.red,fontSize:13,marginBottom:16,fontWeight:600}}, error) : null;
+  if (mode==='sent') return wrap(
+    React.createElement('div', {style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:'28px 24px',textAlign:'center'}},
+      React.createElement('div', {style:{fontSize:40,marginBottom:14}}, '📧'),
+      React.createElement('div', {style:{fontSize:17,fontWeight:800,color:C.text,marginBottom:10}}, 'Check your email'),
+      React.createElement('div', {style:{fontSize:13,color:C.textDim,marginBottom:20}}, 'We sent a reset link to ' + resetEmail),
+      React.createElement('button', {onClick:()=>setMode('login'),style:{background:'transparent',border:'none',color:C.accent,fontSize:14,fontWeight:700,cursor:'pointer'}}, '← Back to Sign In')
+    )
+  );
+  if (mode==='forgot') return wrap(
+    React.createElement('form', {onSubmit:sendReset,style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:'24px'}},
+      React.createElement('div', {style:{fontSize:16,fontWeight:800,color:C.text,marginBottom:4}}, 'Reset Password'),
+      React.createElement('div', {style:{fontSize:12,color:C.textDim,marginBottom:20}}, 'Enter your email and we’ll send you a reset link.'),
+      React.createElement('div', {style:{marginBottom:16}},
+        React.createElement('label', {style:lStyle}, 'Email'),
+        React.createElement('input', {type:'email',value:resetEmail,onChange:e=>setResetEmail(e.target.value),placeholder:'your@email.com',autoComplete:'email',style:iStyle,autoFocus:true})
       ),
-      React.createElement('form', {onSubmit:submit, style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:'24px'}},
-        React.createElement('div', {style:{marginBottom:16}},
-          React.createElement('label', {style:lStyle}, 'Email'),
-          React.createElement('input', {type:'email',value:email,onChange:e=>setEmail(e.target.value),placeholder:'your@email.com',autoComplete:'email',style:iStyle})
-        ),
-        React.createElement('div', {style:{marginBottom:20}},
-          React.createElement('label', {style:lStyle}, 'Password'),
-          React.createElement('input', {type:'password',value:pass,onChange:e=>setPass(e.target.value),placeholder:'••••••••',autoComplete:'current-password',style:iStyle})
-        ),
-        error ? React.createElement('div', {style:{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:8,padding:'10px 12px',color:C.red,fontSize:13,marginBottom:16,fontWeight:600}}, error) : null,
-        React.createElement('button', {type:'submit',disabled:loading,style:{width:'100%',background:loading?C.cardBorder:C.accent,border:'none',borderRadius:10,padding:'13px',color:'#fff',fontSize:15,fontWeight:800,cursor:loading?'not-allowed':'pointer'}}, loading?'Signing in…':'Sign In')
+      errBox,
+      React.createElement('button', {type:'submit',disabled:loading||!resetEmail,style:{width:'100%',background:(loading||!resetEmail)?C.cardBorder:C.accent,border:'none',borderRadius:10,padding:'13px',color:'#fff',fontSize:15,fontWeight:800,cursor:(loading||!resetEmail)?'not-allowed':'pointer'}}, loading?'Sending…':'Send Reset Link'),
+      React.createElement('button', {type:'button',onClick:()=>{setMode('login');setError('');},style:{width:'100%',marginTop:12,background:'transparent',border:'none',color:C.textDim,fontSize:14,fontWeight:600,cursor:'pointer'}}, '← Back to Sign In')
+    )
+  );
+  return wrap(
+    React.createElement('form', {onSubmit:submit,style:{background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:'24px'}},
+      React.createElement('div', {style:{marginBottom:16}},
+        React.createElement('label', {style:lStyle}, 'Email'),
+        React.createElement('input', {type:'email',value:email,onChange:e=>setEmail(e.target.value),placeholder:'your@email.com',autoComplete:'email',style:iStyle})
       ),
-      React.createElement('div', {style:{textAlign:'center',marginTop:14,fontSize:12,color:C.textDim}},
-        'Demo: kameron@tystrya.com / tystrya  ·  admin@cellarmate.app / admin'
+      React.createElement('div', {style:{marginBottom:20}},
+        React.createElement('label', {style:lStyle}, 'Password'),
+        React.createElement('input', {type:'password',value:pass,onChange:e=>setPass(e.target.value),placeholder:'••••••••',autoComplete:'current-password',style:iStyle})
+      ),
+      errBox,
+      React.createElement('button', {type:'submit',disabled:loading,style:{width:'100%',background:loading?C.cardBorder:C.accent,border:'none',borderRadius:10,padding:'13px',color:'#fff',fontSize:15,fontWeight:800,cursor:loading?'not-allowed':'pointer'}}, loading?'Signing in…':'Sign In'),
+      React.createElement('div', {style:{textAlign:'center',marginTop:14}},
+        React.createElement('button', {type:'button',onClick:()=>{setMode('forgot');setResetEmail(email);setError('');},style:{background:'transparent',border:'none',color:C.textDim,fontSize:13,cursor:'pointer',textDecoration:'underline'}}, 'Forgot password?')
       )
+    ),
+    React.createElement('div', {style:{textAlign:'center',marginTop:14,fontSize:12,color:C.textDim}},
+      'Demo: kameron@tystrya.com / tystrya  ·  admin@cellarmate.app / admin'
     )
   );
 }
-
 /* ── SUPER ADMIN SCREEN ─────────────────────────────────────────────── */
 function SuperAdminScreen({ wineries, accounts, setAccounts, onViewWinery, onLogout, authSession }) {
   const [tab, setTab]           = useState('wineries');
