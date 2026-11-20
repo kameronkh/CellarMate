@@ -677,7 +677,7 @@ const HEALTH_FLAGS = [
   {key:"reductive",    label:"Reductive",       color:C.orange,      bg:C.orangeDim},
   {key:"va_risk",      label:"VA Risk",          color:C.red,         bg:C.redDim},
   {key:"oxidative",    label:"Oxidative",        color:C.yellow,      bg:C.yellowDim},
-  {key:"mlf_slow",     label:"MLF Slow",         color:C.accentLight, bg:C.accentDim},
+  {key:"mlf_slow",     label:"In MLF",         color:C.accentLight, bg:C.accentDim},
   {key:"off_aromas",   label:"Off Aromas",       color:C.textMuted,   bg:C.cardBorder},
 ];
 
@@ -1030,7 +1030,7 @@ const MapScreen = ({lots, onSelect}) => {
       )
     ),
     React.createElement("div", {style:{display:"flex",gap:8,flexWrap:"wrap",padding:"8px 0",marginTop:4}},
-      [{c:C.orange,l:"2024"},{c:C.blue,l:"2025"},{c:C.teal,l:"2026"},{c:C.red,l:"VA Alert"},{c:C.yellow,l:"SO₂ Low"},{c:C.accentLight,l:"MLF Slow"}].map(({c,l})=>
+      [{c:C.orange,l:"2024"},{c:C.blue,l:"2025"},{c:C.teal,l:"2026"},{c:C.red,l:"VA Alert"},{c:C.yellow,l:"Add SO₂"},{c:C.accentLight,l:"In MLF"}].map(({c,l})=>
         React.createElement("div", {key:l,style:{display:"flex",alignItems:"center",gap:4,fontSize:10,color:C.textMuted}},
           React.createElement("span", {style:{display:"inline-block",width:9,height:9,borderRadius:2,background:c}}), l
         )
@@ -1042,7 +1042,7 @@ const MapScreen = ({lots, onSelect}) => {
 
 /* ── SMALL COMPONENTS ── */
 const AlertBadge = ({alert}) => {
-  const map={so2:{label:"SO₂ Low",bg:C.yellowDim,color:C.yellow},mlf:{label:"MLF Slow",bg:C.accentDim,color:C.accentLight},va:{label:"VA Risk",bg:C.redDim,color:C.red},stuck:{label:"Stuck",bg:C.redDim,color:C.red}};
+  const map={so2:{label:"Add SO₂",bg:C.yellowDim,color:C.yellow},mlf:{label:"In MLF",bg:C.accentDim,color:C.accentLight},va:{label:"VA Risk",bg:C.redDim,color:C.red},stuck:{label:"Stuck",bg:C.redDim,color:C.red}};
   const a=map[alert]; if(!a) return null;
   return React.createElement("span", {style: {background:a.bg,color:a.color,fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:99,letterSpacing:.5}}, a.label);
 };
@@ -3272,7 +3272,7 @@ function ToolsBarrelMap({lots}) {
     if(lot.alert==="mlf") return C.accentLight;
     return C.green;
   };
-  return(React.createElement(React.Fragment, null, React.createElement(Card, null, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:12}}, "EBS Cellar Layout"), React.createElement("div", {style: {display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}, [{c:C.green,l:"Clean"},{c:C.yellow,l:"SO₂ Low"},{c:C.accentLight,l:"MLF Slow"},{c:C.red,l:"VA Risk"},{c:C.cardBorder,l:"Empty"}].map(({c,l})=>(
+  return(React.createElement(React.Fragment, null, React.createElement(Card, null, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:12}}, "EBS Cellar Layout"), React.createElement("div", {style: {display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}, [{c:C.green,l:"Clean"},{c:C.yellow,l:"Add SO₂"},{c:C.accentLight,l:"In MLF"},{c:C.red,l:"VA Risk"},{c:C.cardBorder,l:"Empty"}].map(({c,l})=>(
           React.createElement("div", {key: l, style: {display:"flex",alignItems:"center",gap:4,fontSize:11,color:C.textMuted}}, React.createElement("span", {style: {display:"inline-block",width:9,height:9,borderRadius:2,background:c}}), l)
         ))), React.createElement("div", {style: {display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}, CELLAR_RACKS.map(rack=>SLOTS.map(slot=>{
           const key=`${rack} ${slot}`,lot=locMap[key],col=alertColor(lot);
@@ -4180,7 +4180,7 @@ function CmVintagePanel(props) {
 
 function CmReportsScreen(props) {
   const p0 = CM_PRESET || {}; CM_PRESET = null;
-  const sTab = React.useState('status'), tab = sTab[0], setTab = sTab[1];
+  const sTab = React.useState(p0.tab || 'status'), tab = sTab[0], setTab = sTab[1];
   const sRows = React.useState(null), rows = sRows[0], setRows = sRows[1];
   const sErr = React.useState(''), err = sErr[0], setErr = sErr[1];
   const sV = React.useState(p0.v || '2026'), v = sV[0], setV = sV[1];
@@ -4879,6 +4879,39 @@ function cmDecorate2(lots) {
   return out;
 }
 
+/* == CELLARMATE MODULE 5: Health screen from the cellar data == */
+function CmHealth(props) {
+  const sR = React.useState(null), rows = sR[0], setRows = sR[1];
+  const sV = React.useState('2026'), v = sV[0], setV = sV[1];
+  const sC = React.useState('add'), cat = sC[0], setCat = sC[1];
+  React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function() { if (live) setRows([]); }); return function() { live = false; }; }, []);
+  if (!rows) return cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading...');
+  const base = rows.filter(function(r) { return v === 'all' || String(r.v) === v; });
+  const list = base.filter(function(r) { return r.cat === cat; });
+  const grams = list.reduce(function(s, r) { return s + (r.g || 0); }, 0);
+  const label = (CM_CATS.filter(function(c) { return c[0] === cat; })[0] || ['', ''])[1];
+  const openLog = function() { CM_PRESET = {tab:'log'}; props.go(props.SCREENS.reports, props.SCREENS.health); };
+  const openReports = function() { CM_PRESET = {v:v, iss:'cat:' + cat}; props.go(props.SCREENS.reports, props.SCREENS.health); };
+  return cmE(React.Fragment, null,
+    cmE('div', {style:{marginBottom:10}}, cmSeg([['2026','2026'],['2025','2025'],['all','Both']], v, setV)),
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:6, marginBottom:10}}, CM_CATS.map(function(c) {
+      const n = base.filter(function(r) { return r.cat === c[0]; }).length; const on = cat === c[0];
+      return cmE('div', {key:c[0], onClick:function() { setCat(c[0]); }, style:{background:on ? C.accentDim : C.card, border:'1px solid ' + (on ? C.accent : C.cardBorder), borderRadius:10, padding:'8px 4px', textAlign:'center', cursor:'pointer'}},
+        cmE('div', {style:{fontSize:19, fontWeight:800, color:c[2]}}, n), cmE('div', {style:{fontSize:9, color:C.textDim, fontWeight:700, marginTop:2}}, c[1]));
+    })),
+    cmNote('These calls come from the cellar status records and the work log: targets, grams and MLF calls are the ones on the status sheet.'),
+    cmE('div', {style:{display:'flex', gap:8, marginBottom:10}}, cmBtn('Log work done', openLog, true, false), cmBtn('Open in Reports', openReports, false, false)),
+    cmE('div', {style:{fontSize:12, fontWeight:800, color:C.text, marginBottom:6}}, label + ' (' + list.length + ')' + (grams ? CM_MID + grams + ' g SO2' : '')),
+    !list.length ? cmNote('No barrels in this group.') : list.map(function(r) {
+      return cmE('div', {key:r.v + '-' + r.b, style:{background:C.card, border:'1px solid ' + C.cardBorder, borderLeft:'3px solid ' + CM_CAT_COLOR[r.cat], borderRadius:10, padding:'9px 12px', marginBottom:6}},
+        cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}},
+          cmE('div', {style:{minWidth:0}}, cmDot(r.col), cmE('span', {style:{fontWeight:800, fontSize:14}}, r.b), cmE('span', {style:{fontSize:12, color:C.textMuted, marginLeft:8}}, r.var)),
+          r.g != null ? cmE('span', {style:{fontSize:12, fontWeight:800, color:C.red, whiteSpace:'nowrap'}}, r.g + ' g' + (r.tab ? ' (' + r.tab + ')' : '')) : null),
+        cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, 'pH ' + (r.ph == null ? 'not read' : r.ph.toFixed(2)) + CM_MID + 'malic ' + (r.malic == null ? 'not tested' : r.malic) + CM_MID + (r.mlf || 'MLF not recorded') + (r.est != null ? CM_MID + 'free SO2 about ' + r.est : '') + (r.target != null ? CM_MID + 'target ' + r.target : '')),
+        cmE('div', {style:{fontSize:12, fontWeight:700, color:CM_CAT_COLOR[r.cat], marginTop:3}}, r.action));
+    }));
+}
+
 async function getSupaProfile(userId) {
   const { data } = await supa.from('profiles').select('*').eq('id', userId).single();
   return data;
@@ -5187,7 +5220,7 @@ screen===SCREENS.lots&&(React.createElement(React.Fragment, null, React.createEl
               }), React.createElement("div", {style: {fontSize:12,color:C.textDim,background:C.bg,borderRadius:8,padding:"10px 12px",lineHeight:1.5,marginTop:4}}, "💡 Tap \"Done ✓\" to reset the timer. Adjust intervals based on wine condition — high-risk barrels should be topped more frequently.")), detailTab==="ph"&&React.createElement(PHTrackingTab, {lot: lot}), detailTab==="history"&&(React.createElement(React.Fragment, null, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:10}}, "Log History (", lot.logs.length, ")"), [...lot.logs].reverse().map((log,i)=>(
                 React.createElement("div", {key: i, style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:"13px 15px",marginBottom:10}}, React.createElement("div", {style: {fontWeight:700,fontSize:14,color:C.accentLight,marginBottom:8}}, log.date), React.createElement("div", {style: {display:"flex",gap:14,flexWrap:"wrap",marginBottom:log.notes?8:0}}, log.brix!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.brix, "°"), "Brix"), log.ph!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.ph), "pH"), log.ta!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.ta), "TA"), log.so2Free!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.so2Free), "SO₂"), log.temp!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.temp, "°F")), log.malic!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.malic), "Malic"), log.yan!=null&&React.createElement("span", {style: {fontSize:12,color:C.textMuted}}, React.createElement("b", {style: {color:C.text}}, log.yan), "YAN")), log.type==="transfer"&&React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.teal,marginBottom:4}}, "🔀 Transfer"), log.notes&&React.createElement("div", {style: {fontSize:12,color:C.textDim,fontStyle:"italic"}}, "\"", log.notes, "\""), log.user&&React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:4}}, "by", log.user))
               )), React.createElement("button", {onClick: ()=>{setForm(f=>({...f,lotId:String(lot.id)}));go(SCREENS.log,SCREENS.detail);}, style: {width:"100%",background:`linear-gradient(135deg,${C.accent},#6d28d9)`,border:"none",borderRadius:14,padding:14,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",marginBottom:8}}, "+ Log New Reading"), can(activeUser,"transfer") && React.createElement("button", {onClick: ()=>{setTransferLot(lot);go(SCREENS.transfer,SCREENS.detail)}, style: {width:"100%",background:C.card,border:`1px solid ${C.teal}`,borderRadius:14,padding:13,color:C.teal,fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:8}}, "🔀 Transfer / Rack Wine"), React.createElement("button", {onClick: ()=>{setReportLot(lot);go(SCREENS.report,SCREENS.detail)}, style: {width:"100%",background:C.card,border:`1px solid ${C.blue}`,borderRadius:14,padding:13,color:C.blue,fontSize:14,fontWeight:700,cursor:"pointer"}}, "📄 Print Barrel Report")))));
-        })(), screen===SCREENS.tools&&React.createElement(ToolsScreen, {lots: lots, members: activeWinery ? activeWinery.members : [], onSelect: (l)=>{setLot(l);go(SCREENS.detail,SCREENS.tools);}}), screen===SCREENS.alerts&&React.createElement(AlertsScreen, {lots: lots, setLots: setLots, onOpenCheckModal: openCheckModal}), screen===SCREENS.transfer&&React.createElement(TransferScreen, {sourceLot: transferLot, lots: lots, setLots: setLots, activeUser: activeUser, onDone: ()=>go(SCREENS.lots,SCREENS.detail), onCancel: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.blocks&&React.createElement(BlocksScreen, {activeWinery: activeWinery, setWineries: setWineries}), screen===SCREENS.report&&React.createElement(ReportScreen, {lot: reportLot, activeWinery: activeWinery, onBack: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.reports&&React.createElement(CmReportsScreen, {go: go, SCREENS: SCREENS}), screen===SCREENS.health&&React.createElement(CellarHealthScreen, {lots: lots, settings: settings, go: go, SCREENS: SCREENS}), screen===SCREENS.settings&&React.createElement(SettingsScreen, {activeWinery: activeWinery, setWineries: setWineries, lots: lots, setLots: setLots, wineries: wineries}), pinEntry.wineryId && (
+        })(), screen===SCREENS.tools&&React.createElement(ToolsScreen, {lots: lots, members: activeWinery ? activeWinery.members : [], onSelect: (l)=>{setLot(l);go(SCREENS.detail,SCREENS.tools);}}), screen===SCREENS.alerts&&React.createElement(AlertsScreen, {lots: lots, setLots: setLots, onOpenCheckModal: openCheckModal}), screen===SCREENS.transfer&&React.createElement(TransferScreen, {sourceLot: transferLot, lots: lots, setLots: setLots, activeUser: activeUser, onDone: ()=>go(SCREENS.lots,SCREENS.detail), onCancel: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.blocks&&React.createElement(BlocksScreen, {activeWinery: activeWinery, setWineries: setWineries}), screen===SCREENS.report&&React.createElement(ReportScreen, {lot: reportLot, activeWinery: activeWinery, onBack: ()=>go(prevScreen||SCREENS.detail)}), screen===SCREENS.reports&&React.createElement(CmReportsScreen, {go: go, SCREENS: SCREENS}), screen===SCREENS.health&&(CM_DASH.on ? React.createElement(CmHealth, {go: go, SCREENS: SCREENS}) : React.createElement(CellarHealthScreen, {lots: lots, settings: settings, go: go, SCREENS: SCREENS})), screen===SCREENS.settings&&React.createElement(SettingsScreen, {activeWinery: activeWinery, setWineries: setWineries, lots: lots, setLots: setLots, wineries: wineries}), pinEntry.wineryId && (
         React.createElement("div", {style: {position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}, React.createElement("div", {style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:20,padding:28,width:"100%",maxWidth:340}}, React.createElement("div", {style: {fontSize:16,fontWeight:800,textAlign:"center",marginBottom:20}}, "Enter Winery Passcode"), React.createElement("div", {style: {display:"flex",gap:10,justifyContent:"center",marginBottom:20}}, [0,1,2,3].map(i=>(
                 React.createElement("div", {key: i, style: {width:50,height:60,borderRadius:10,background:C.bg,border:`2px solid ${pinEntry.value.length===i?C.accent:C.cardBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:800,color:C.text}}, pinEntry.value[i]?"●":"")
               ))), React.createElement("div", {style: {display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:10}}, [1,2,3,4,5,6,7,8,9].map(n=>(
