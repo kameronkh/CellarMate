@@ -4195,7 +4195,7 @@ function CmReportsScreen(props) {
   React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function(e) { if (live) { setRows([]); setErr(e.message); } }); return function() { live = false; }; }, [tab]);
   React.useEffect(function() { if (tab !== 'data') return; let live = true; setData(null); cmFetch(tbl).then(function(r) { if (live) setData(r); }).catch(function(e) { if (live) { setData([]); setErr(e.message); } }); return function() { live = false; }; }, [tab, tbl]);
   const run = function(label, fn) { setBusy(label); setErr(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }).then(function() { setBusy(''); }); };
-  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:560}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['data','Data'],['ask','Q&A']], tab, setTab)));
+  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:640}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['data','Data'],['ask','Q&A']].concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
   const errBox = err ? cmE('div', {style:{background:C.redDim, border:'1px solid ' + C.red, borderRadius:8, padding:'10px 12px', color:C.red, fontSize:12, marginBottom:12, fontWeight:600}}, err) : null;
   const busyBox = busy ? cmE('div', {style:{fontSize:12, color:C.accentLight, marginBottom:10}}, busy) : null;
 
@@ -4204,6 +4204,7 @@ function CmReportsScreen(props) {
   if (tab === 'log') return cmE(React.Fragment, null, tabs, cmE(CmLogWork, null));
   if (tab === 'work') return cmE(React.Fragment, null, tabs, cmE(CmWork, null));
   if (tab === 'vol') return cmE(React.Fragment, null, tabs, cmE(CmVolumes, null));
+  if (tab === 'admin') return cmE(React.Fragment, null, tabs, cmE(CmAdmin, null));
   if (tab === 'tanks') return cmE(React.Fragment, null, tabs, cmE(CmTanks, null));
   if (tab === 'data') {
     const all = data || [];
@@ -4218,7 +4219,7 @@ function CmReportsScreen(props) {
         cmBtn('Excel', function(){ run('Building Excel file…', async function() { const wb = await cmXlsxBook([{name:label, cols:cols, rows:clean(shown, cols)}]); XLSX.writeFile(wb, 'CellarMate_' + tbl + '_' + cmStamp() + '.xlsx'); }); }, true, !shown.length || !!busy),
         cmBtn('PDF', function(){ run('Building PDF…', async function() { const doc = await cmPdfDoc(label, shown.length + ' rows  |  exported ' + cmStamp(), cols.map(function(c) { return [c, c]; }), [{rows:shown}]); doc.save('CellarMate_' + tbl + '_' + cmStamp() + '.pdf'); }); }, false, !shown.length || !!busy)),
       cmE('div', {style:{display:'flex', gap:8, marginBottom:12}},
-        cmBtn('Excel workbook of every table', function(){ run('Loading all tables…', async function() { const sheets = []; for (let i = 0; i < CM_TABLE_LIST.length; i++) { const rs = await cmFetch(CM_TABLE_LIST[i][0]); const cs = cmCols(rs); sheets.push({name:CM_TABLE_LIST[i][1], cols:cs, rows:clean(rs, cs)}); } const wb = await cmXlsxBook(sheets); XLSX.writeFile(wb, 'CellarMate_all_data_' + cmStamp() + '.xlsx'); }); }, false, !!busy)),
+        cmBtn('Excel workbook of every table', function(){ if (!cmCan('export')) { setErr('Your role does not allow exports.'); return; } run('Loading all tables…', async function() { const sheets = []; for (let i = 0; i < CM_TABLE_LIST.length; i++) { const rs = await cmFetch(CM_TABLE_LIST[i][0]); const cs = cmCols(rs); sheets.push({name:CM_TABLE_LIST[i][1], cols:cs, rows:clean(rs, cs)}); } const wb = await cmXlsxBook(sheets); XLSX.writeFile(wb, 'CellarMate_all_data_' + cmStamp() + '.xlsx'); }); }, false, !!busy)),
       cmE(CmImport, null),
       busyBox,
       cmE('div', {style:{fontSize:12, color:C.textMuted, marginBottom:8}}, data ? shown.length + ' of ' + all.length + ' rows' + (shown.length > 100 ? ' (first 100 shown; exports include all)' : '') : 'Loading…'),
@@ -4287,7 +4288,7 @@ function CmReportsScreen(props) {
         cmE('div', null, cmE('label', {style:cmLbl}, 'Search'), cmE('input', {value:q, onChange:function(e){ setQ(e.target.value); }, placeholder:'barrel, lot, action', style:cmSel}))),
       cmE('div', {style:{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6, marginBottom:10}},
         tile(list.length, 'BARRELS', 'of ' + base.length), tile(list.filter(function(r) { return r.g != null; }).length, 'NEED SO2', grams + ' g', C.red), tile(five + ' / ' + two, 'TABLETS', '5 g / 2 g'), tile(list.filter(function(r) { return r.ph != null && r.ph >= 3.8; }).length, 'pH ≥ 3.80', null, C.orange)),
-      cmE('div', {style:{display:'flex', gap:8, marginBottom:6}}, cmBtn('PDF report', doPdf, true, !list.length || !!busy), cmBtn('Excel report', doXlsx, true, !list.length || !!busy)),
+      cmE('div', {style:{display:'flex', gap:8, marginBottom:6}}, cmBtn('PDF report', doPdf, true, !list.length || !!busy || !cmCan('export')), cmBtn('Excel report', doXlsx, true, !list.length || !!busy || !cmCan('export'))),
       busyBox,
       cmE('div', {style:{fontSize:10, color:C.textDim, marginBottom:12}}, 'Exports use the filters above. Reds from Estate, Stiling and Sawyer count as Pinot Noir; lots with no variety written are Unknown.'),
       !list.length ? cmE('div', {style:{textAlign:'center', color:C.textDim, padding:24}}, 'No barrels match these filters.') : null,
@@ -4418,6 +4419,7 @@ function cmTable(cols, groups) {
       cmE('tbody', null, body)));
 }
 function CmExport(props) {
+  if (!cmCan('export')) return null;
   const sb = React.useState(''), busy = sb[0], setBusy = sb[1];
   const se = React.useState(''), err = se[0], setErr = se[1];
   const n = props.groups.reduce(function(s, g) { return s + g.rows.length; }, 0);
@@ -4778,7 +4780,7 @@ function CmLogWork() {
     cmE('div', {style:{display:'flex', gap:8, marginBottom:8}},
       cmBtn('Tick all shown (' + list.length + ')', function() { const o = Object.assign({}, sel); list.forEach(function(r) { o[r.b] = true; }); setSel(o); }, false, !list.length),
       cmBtn('Clear', function() { setSel({}); }, false, !chosen.length)),
-    cmE('div', {style:{marginBottom:8}}, cmBtn('Save ' + cmActLabel(type) + ' for ' + chosen.length + ' barrel' + (chosen.length === 1 ? '' : 's'), saveAll, true, !chosen.length)),
+    cmE('div', {style:{marginBottom:8}}, cmBtn('Save ' + cmActLabel(type) + ' for ' + chosen.length + ' barrel' + (chosen.length === 1 ? '' : 's'), saveAll, true, !chosen.length || !cmCan('log_work'))),
     err ? cmNote(err, C.red) : null,
     msg ? cmNote(msg, C.green) : null,
     cmE('div', {style:{maxHeight:380, overflowY:'auto', border:'1px solid ' + C.cardBorder, borderRadius:10, marginBottom:14}},
@@ -4793,7 +4795,7 @@ function CmLogWork() {
     !recent.length ? cmNote('Nothing logged yet.') : recent.map(function(a) {
       return cmE('div', {key:a.id, style:{display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'8px 12px', marginBottom:6, fontSize:12}},
         cmE('div', null, cmE('span', {style:{fontWeight:800}}, cmCode({v:a.vintage, b:a.barrel})), CM_MID + cmActLabel(a.action_type) + CM_MID + (a.done_on || '') + (a.grams != null ? CM_MID + Number(a.grams) + ' g' : '') + (a.value != null ? CM_MID + Number(a.value) : '') + (a.note ? CM_MID + a.note : '')),
-        cmE('span', {onClick:function() { undo(a.id); }, style:{color:C.red, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'}}, 'Undo'));
+        !cmCan('undo') ? null : cmE('span', {onClick:function() { undo(a.id); }, style:{color:C.red, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'}}, 'Undo'));
     }));
 }
 function CmImport() {
@@ -5252,7 +5254,7 @@ function CmWork() {
     cmE('div', {style:{display:'flex', gap:8}}, cmBtn('Create work order' + (codes.length ? ' for ' + codes.length + ' barrel' + (codes.length === 1 ? '' : 's') : ''), create, true, false), cmBtn('Cancel', function() { setNew(false); }, false, false)));
   return cmE(React.Fragment, null,
     cmNote('Assign a job, tick barrels off as you go, then finish it. Finishing writes to the work log: SO2 and ML orders update each barrel, topping orders add a topping round.'),
-    cmE('div', {style:{display:'flex', gap:8, marginBottom:10}}, cmBtn(isNew ? 'Close form' : '+ New work order', function() { setNew(!isNew); }, true, false)),
+    cmCan('wo_manage') ? cmE('div', {style:{display:'flex', gap:8, marginBottom:10}}, cmBtn(isNew ? 'Close form' : '+ New work order', function() { setNew(!isNew); }, true, false)) : null,
     form,
     err ? cmNote(err, C.red) : null,
     msg ? cmNote(msg, C.green) : null,
@@ -5279,8 +5281,8 @@ function CmWork() {
           (o.status === 'Open' && o.task_type === 'so2' && bs.some(function(code) { const r = byCode[code]; return !r || r.g == null; })) ? cmE('div', {style:{marginTop:8}}, cmE('label', {style:cmLbl}, 'Grams per barrel where the sheet lists none'), cmE('input', {value:gr[o.id] || '', inputMode:'decimal', onChange:function(e) { const g2 = Object.assign({}, gr); g2[o.id] = e.target.value; setGr(g2); }, placeholder:'for example 10', style:inp})) : null,
           o.status === 'Open' ? cmE('div', {style:{display:'flex', gap:8, marginTop:8}},
             bs.length ? cmBtn('Tick all', function() { saveTicks(o, bs.slice()); }, false, dn.length === bs.length) : null,
-            cmBtn('Finish', function() { finish(o); }, true, false),
-            cmBtn('Cancel order', function() { setStatus(o, 'Cancelled'); }, false, false)) : cmE('div', {style:{display:'flex', gap:8, marginTop:8}}, o.status === 'Cancelled' ? cmBtn('Reopen', function() { setStatus(o, 'Open'); }, false, false) : null)));
+            cmBtn('Finish', function() { finish(o); }, true, !cmCan('wo_do')),
+            (cmCan('wo_manage') ? cmBtn('Cancel order', function() { setStatus(o, 'Cancelled'); }, false, false) : null)) : cmE('div', {style:{display:'flex', gap:8, marginTop:8}}, o.status === 'Cancelled' ? cmBtn('Reopen', function() { setStatus(o, 'Open'); }, false, false) : null)));
     }));
 }
 const CM_MOVE_TYPES = [['rack','Rack or transfer'],['top','Topping'],['blend','Blend'],['loss','Loss (lees, spill, evaporation)'],['bottle','Bottled'],['add','Received or added'],['fix','Correction']];
@@ -5348,7 +5350,7 @@ function CmVolumes() {
         hasTo ? cmE('div', null, cmE('label', {style:cmLbl}, 'To' + (F.to && nowOf(F.to) != null ? ' (' + f1(nowOf(F.to)) + ' gal)' : '')), cmE('input', {value:F.to, list:'cm-vnames', onChange:function(e) { set('to', e.target.value); }, placeholder:'Tank or barrel', style:inp})) : null,
         cmE('div', null, cmE('label', {style:cmLbl}, 'Gallons'), cmE('input', {value:F.gal, inputMode:'decimal', onChange:function(e) { set('gal', e.target.value); }, placeholder:'for example 2.5', style:inp})),
         cmE('div', null, cmE('label', {style:cmLbl}, 'Note'), cmE('input', {value:F.note, onChange:function(e) { set('note', e.target.value); }, placeholder:'optional', style:inp}))),
-      cmE('div', {style:{display:'flex'}}, cmBtn('Save move', save, true, false))),
+      cmE('div', {style:{display:'flex'}}, cmBtn(cmCan('moves') ? 'Save move' : 'Your role cannot record moves', save, true, !cmCan('moves')))),
     err ? cmNote(err, C.red) : null,
     msg ? cmNote(msg, C.green) : null,
     cmE('div', {style:{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:12}}, [['Moves on file', D.moves.length], ['Losses, gal', f1(sum('loss'))], ['Bottled, gal', f1(sum('bottle'))]].map(function(t) {
@@ -5361,11 +5363,133 @@ function CmVolumes() {
     !led.length ? cmNote('No moves recorded yet.') : led.slice(0, 60).map(function(m) {
       return cmE('div', {key:m.id, style:{display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'8px 12px', marginBottom:6, fontSize:12}},
         cmE('div', null, cmE('span', {style:{fontWeight:800}}, Number(m.gallons) + ' gal'), CM_MID + cmMoveLabel(m.move_type) + CM_MID + (m.from_vessel || '') + (m.from_vessel && m.to_vessel ? ' to ' : '') + (m.to_vessel || '') + CM_MID + m.moved_on + (m.note ? CM_MID + m.note : '')),
-        cmE('span', {onClick:function() { undo(m.id); }, style:{color:C.red, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'}}, 'Undo'));
+        !cmCan('undo') ? null : cmE('span', {onClick:function() { undo(m.id); }, style:{color:C.red, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'}}, 'Undo'));
     }));
 }
 
+/* == CELLARMATE MODULE 9: roles, access and the admin section == */
+const CM_ME = {loaded:false, has_access:true, perms:{}, is_super_admin:false};
+function cmCan(p) { if (!CM_ME.loaded) return true; return !!(CM_ME.is_super_admin || (CM_ME.perms && CM_ME.perms[p])); }
+async function cmLoadAccess() {
+  try {
+    const r = await supa.schema('cellarmate').rpc('my_access');
+    if (r.error) throw new Error(r.error.message);
+    Object.keys(CM_ME).forEach(function(k) { delete CM_ME[k]; });
+    Object.assign(CM_ME, {perms:{}, is_super_admin:false, has_access:false}, r.data || {}, {loaded:true});
+  } catch (e) { CM_ME.loaded = false; }
+  return CM_ME;
+}
+const CM_ROLES = [['owner','Winery admin'],['winemaker','Winemaker'],['cellarmaster','Cellarmaster'],['cellar','Cellar personnel'],['office','Office (reports)'],['compliance','Compliance (facility)'],['client','Client winemaker'],['readonly','View only']];
+const CM_PERMS = [['wo_do','Tick off and finish work orders'],['log_work','Log work and readings'],['wo_manage','Create and cancel work orders'],['moves','Record volume moves'],['undo','Undo entries'],['answer','Answer questions'],['edit_data','Edit records and import data'],['export','Export PDF and Excel'],['manage_users','Manage users'],['facility_view','See every winery in the facility']];
+function cmRoleLabel(k) { const f = CM_ROLES.filter(function(x) { return x[0] === k; })[0]; return f ? f[1] : (k || 'No role'); }
+function CmNoAccess(props) {
+  return cmE('div', {style:{position:'fixed', inset:0, background:C.bg, display:'flex', alignItems:'center', justifyContent:'center', padding:20}},
+    cmE('div', {style:{maxWidth:400, width:'100%', background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:16, padding:24, textAlign:'center'}},
+      cmE('div', {style:{fontSize:20, fontWeight:900, color:C.text, marginBottom:10}}, 'No CellarMate access yet'),
+      cmE('div', {style:{fontSize:13, color:C.textMuted, lineHeight:1.6, marginBottom:18}}, 'The login ' + (props.email || '') + ' has not been added to a winery, or it has been switched off. Ask your winery admin to add you, then sign in again.'),
+      cmE('button', {onClick:props.onLogout, style:{width:'100%', background:C.accent, border:'none', borderRadius:10, padding:13, color:'#fff', fontSize:15, fontWeight:800, cursor:'pointer'}}, 'Sign out')));
+}
+function CmAdmin() {
+  const sD = React.useState(null), D = sD[0], setD = sD[1];
+  const sT = React.useState(0), tick = sT[0], setTick = sT[1];
+  const sO = React.useState(null), openId = sO[0], setOpenId = sO[1];
+  const sI = React.useState({email:'', name:'', role:'cellar', org:CM_ME.org_id || ''}), inv = sI[0], setInv = sI[1];
+  const sW = React.useState({name:'', contact:''}), nw = sW[0], setNw = sW[1];
+  const sE = React.useState(''), err = sE[0], setErr = sE[1];
+  const sM = React.useState(''), msg = sM[0], setMsg = sM[1];
+  const db = function() { return supa.schema('cellarmate'); };
+  React.useEffect(function() { let live = true;
+    Promise.all([db().rpc('admin_users'), db().rpc('admin_invites'), db().rpc('role_defaults'), db().from('organizations').select('*').order('name'), db().from('facilities').select('*').order('name')]).then(function(a) {
+      if (!live) return; const bad = a.filter(function(r) { return r.error; })[0]; if (bad) throw new Error(bad.error.message);
+      setD({users:a[0].data || [], invites:a[1].data || [], defs:a[2].data || {}, orgs:a[3].data || [], facs:a[4].data || []});
+    }).catch(function(e) { if (live) { setD({users:[], invites:[], defs:{}, orgs:[], facs:[]}); setErr(e.message); } });
+    return function() { live = false; }; }, [tick]);
+  if (!D) return cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading...');
+  const sup = !!CM_ME.is_super_admin;
+  const inp = Object.assign({}, cmSel, {minWidth:0});
+  const call = function(fn, args, ok) { setErr(''); setMsg(''); Promise.resolve().then(async function() { const r = await db().rpc(fn, args); if (r.error) throw new Error(r.error.message); setMsg(typeof ok === 'function' ? ok(r.data) : ok); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const setUser = function(u, role, perms, active, org, ok) { call('admin_set_user', {p_id:u.id, p_role:role, p_perms:perms, p_active:active, p_org:org, p_facility_view:null}, ok); };
+  const eff = function(u, k) { if (u.is_super_admin) return true; if (u.perms && Object.prototype.hasOwnProperty.call(u.perms, k)) return !!u.perms[k]; return (D.defs[u.role_key] || []).indexOf(k) !== -1; };
+  const custom = function(u, k) { return !!(u.perms && Object.prototype.hasOwnProperty.call(u.perms, k)); };
+  const addWinery = function() { setErr(''); setMsg(''); Promise.resolve().then(async function() {
+    if (!nw.name.trim()) throw new Error('Enter the winery name.');
+    const r = await db().from('organizations').insert({name:nw.name.trim(), contact_name:nw.contact.trim() || null, facility_id:(D.facs[0] || {}).id || null, uses_app:false});
+    if (r.error) throw new Error(r.error.message); setMsg('Added ' + nw.name.trim() + ' to the facility.'); setNw({name:'', contact:''}); setTick(tick + 1);
+  }).catch(function(e) { setErr(e.message); }); };
+  const setOrg = function(o, patch, ok) { setErr(''); setMsg(''); Promise.resolve().then(async function() { const r = await db().from('organizations').update(patch).eq('id', o.id); if (r.error) throw new Error(r.error.message); setMsg(ok); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const invite = function() { call('admin_invite', {p_email:inv.email, p_name:inv.name, p_role:inv.role, p_org:inv.org || null}, function(d) { setInv(Object.assign({}, inv, {email:'', name:''})); return d && d.result === 'added' ? inv.email + ' now has access as ' + cmRoleLabel(inv.role) + '.' : inv.email + ' is on the list. Access starts the first time they sign in with that email.'; }); };
+  const card = {background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'10px 12px', marginBottom:8};
+  const chip = function(text, col) { return cmE('span', {key:text, style:{fontSize:10, fontWeight:800, color:col, border:'1px solid ' + col, borderRadius:10, padding:'1px 7px', marginLeft:6, whiteSpace:'nowrap'}}, text); };
+  const nUsers = function(o) { return D.users.filter(function(u) { return u.org_id === o.id; }).length; };
+  const guideCols = [['p','Can...']].concat(CM_ROLES.map(function(r) { return [r[0], r[1]]; }));
+  const guideRows = CM_PERMS.map(function(p) { const o = {p:p[1]}; CM_ROLES.forEach(function(r) { o[r[0]] = (D.defs[r[0]] || []).indexOf(p[0]) !== -1 ? 'yes' : ''; }); return o; });
+  const groupsF = D.facs.map(function(f) { return {f:f, orgs:D.orgs.filter(function(o) { return o.facility_id === f.id; })}; });
+  const loose = D.orgs.filter(function(o) { return !o.facility_id; });
+  return cmE(React.Fragment, null,
+    cmNote('Signed in as ' + (CM_ME.full_name || CM_ME.email || '') + ': ' + cmRoleLabel(CM_ME.role_key) + (sup ? ', super admin' : '') + '. Access is enforced in the database, so a person can only do what their role allows even outside these screens.'),
+    err ? cmNote(err, C.red) : null,
+    msg ? cmNote(msg, C.green) : null,
+    cmE('div', {style:cmLbl}, 'Facility and wineries'),
+    groupsF.map(function(g) {
+      return cmE('div', {key:g.f.id, style:card},
+        cmE('div', {style:{fontWeight:800, fontSize:14, marginBottom:6}}, g.f.name, chip(g.orgs.length + ' winemakers', C.accentLight)),
+        g.orgs.map(function(o) {
+          return cmE('div', {key:o.id, style:{display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, padding:'7px 0', borderTop:'1px solid ' + C.cardBorder, fontSize:12}},
+            cmE('div', {style:{minWidth:0}}, cmE('span', {style:{fontWeight:800, fontSize:13}}, o.name), cmE('span', {style:{color:C.textMuted, marginLeft:6}}, (o.contact_name ? o.contact_name + CM_MID : '') + nUsers(o) + ' user' + (nUsers(o) === 1 ? '' : 's')),
+              o.notes ? cmE('div', {style:{color:C.textDim, fontSize:11}}, o.notes) : null),
+            sup ? cmE('span', {onClick:function() { setOrg(o, {uses_app:!o.uses_app}, o.name + (o.uses_app ? ' set to facility records only.' : ' set to using the app.')); }, style:{color:o.uses_app ? C.green : C.textDim, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'}}, o.uses_app ? 'Uses the app' : 'Records only')
+                : cmE('span', {style:{color:o.uses_app ? C.green : C.textDim, fontWeight:700, whiteSpace:'nowrap'}}, o.uses_app ? 'Uses the app' : 'Records only'));
+        }),
+        sup ? cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, marginTop:8}},
+          cmE('input', {value:nw.name, onChange:function(e) { setNw(Object.assign({}, nw, {name:e.target.value})); }, placeholder:'New winery name', style:inp}),
+          cmE('input', {value:nw.contact, onChange:function(e) { setNw(Object.assign({}, nw, {contact:e.target.value})); }, placeholder:'Winemaker', style:inp}),
+          cmBtn('Add', addWinery, false, false)) : null);
+    }),
+    loose.length ? cmNote('Not in a facility: ' + loose.map(function(o) { return o.name; }).join(', ')) : null,
+    cmE('div', {style:cmLbl}, 'People (' + D.users.length + ')'),
+    D.users.map(function(u) {
+      const open = openId === u.id; const lock = !sup && (u.is_super_admin || u.is_me);
+      return cmE('div', {key:u.id, style:Object.assign({}, card, {borderLeft:'3px solid ' + (!u.active ? C.red : u.is_super_admin ? C.accent : C.green)})},
+        cmE('div', {onClick:function() { setOpenId(open ? null : u.id); }, style:{cursor:'pointer'}},
+          cmE('div', null, cmE('span', {style:{fontWeight:800, fontSize:14}}, u.full_name || u.email), u.is_me ? chip('you', C.textDim) : null, u.is_super_admin ? chip('super admin', C.accentLight) : null, !u.active ? chip('switched off', C.red) : null),
+          cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, (u.email || '') + CM_MID + (u.org_name || 'No winery') + CM_MID + cmRoleLabel(u.role_key) + CM_MID + (u.last_sign_in ? 'last signed in ' + String(u.last_sign_in).slice(0, 10) : 'never signed in'))),
+        !open ? null : lock ? cmE('div', {style:{fontSize:12, color:C.textDim, marginTop:8}}, u.is_me ? 'You cannot change your own access.' : 'Only a super admin can change a super admin.') : cmE('div', {style:{marginTop:10}},
+          cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}},
+            cmE('div', null, cmE('label', {style:cmLbl}, 'Role'), cmE('select', {value:u.role_key || '', onChange:function(e) { setUser(u, e.target.value, null, null, null, (u.full_name || u.email) + ' is now ' + cmRoleLabel(e.target.value) + '.'); }, style:inp}, CM_ROLES.filter(function(r) { return sup || r[0] !== 'compliance'; }).map(function(r) { return cmE('option', {key:r[0], value:r[0]}, r[1]); }))),
+            sup ? cmE('div', null, cmE('label', {style:cmLbl}, 'Winery'), cmE('select', {value:u.org_id || '', onChange:function(e) { setUser(u, null, null, null, e.target.value, (u.full_name || u.email) + ' moved to another winery.'); }, style:inp}, D.orgs.map(function(o) { return cmE('option', {key:o.id, value:o.id}, o.name); }))) : null),
+          cmE('label', {style:cmLbl}, 'Access for this person'),
+          CM_PERMS.filter(function(p) { return sup || p[0] !== 'facility_view'; }).map(function(p) { const on = eff(u, p[0]); const cu = custom(u, p[0]);
+            return cmE('div', {key:p[0], onClick:u.is_super_admin ? undefined : function() { const np = Object.assign({}, u.perms || {}); np[p[0]] = !on; setUser(u, null, np, null, null, p[1] + (on ? ' switched off for ' : ' switched on for ') + (u.full_name || u.email) + '.'); }, style:{display:'flex', gap:10, alignItems:'center', padding:'6px 2px', borderTop:'1px solid ' + C.cardBorder, cursor:u.is_super_admin ? 'default' : 'pointer', fontSize:12}},
+              cmE('span', {style:{width:18, height:18, borderRadius:4, border:'2px solid ' + (on ? C.green : C.textDim), background:on ? C.green : 'transparent', flexShrink:0, color:'#fff', fontSize:12, lineHeight:'15px', textAlign:'center', fontWeight:800}}, on ? 'x' : ''),
+              cmE('span', {style:{flex:1}}, p[1]), cu ? chip('custom', C.yellow) : null); }),
+          cmE('div', {style:{display:'flex', gap:8, marginTop:10, flexWrap:'wrap'}},
+            cmBtn('Reset to role defaults', function() { setUser(u, null, {}, null, null, 'Access for ' + (u.full_name || u.email) + ' reset to the ' + cmRoleLabel(u.role_key) + ' defaults.'); }, false, !u.perms || !Object.keys(u.perms).length),
+            u.is_me ? null : cmBtn(u.active ? 'Switch off login' : 'Switch login on', function() { setUser(u, null, null, !u.active, null, (u.full_name || u.email) + (u.active ? ' is switched off.' : ' is switched on.')); }, false, false),
+            sup && !u.is_me ? cmBtn(u.is_super_admin ? 'Remove super admin' : 'Make super admin', function() { call('admin_set_super', {p_id:u.id, p_on:!u.is_super_admin}, (u.full_name || u.email) + (u.is_super_admin ? ' is no longer a super admin.' : ' is now a super admin.')); }, false, false) : null)));
+    }),
+    cmE('div', {style:cmLbl}, 'Add a person'),
+    cmE('div', {style:card},
+      cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}},
+        cmE('input', {value:inv.email, onChange:function(e) { setInv(Object.assign({}, inv, {email:e.target.value})); }, placeholder:'Email', style:inp}),
+        cmE('input', {value:inv.name, onChange:function(e) { setInv(Object.assign({}, inv, {name:e.target.value})); }, placeholder:'Full name', style:inp}),
+        cmE('select', {value:inv.role, onChange:function(e) { setInv(Object.assign({}, inv, {role:e.target.value})); }, style:inp}, CM_ROLES.filter(function(r) { return sup || r[0] !== 'compliance'; }).map(function(r) { return cmE('option', {key:r[0], value:r[0]}, r[1]); })),
+        cmE('select', {value:inv.org, disabled:!sup, onChange:function(e) { setInv(Object.assign({}, inv, {org:e.target.value})); }, style:inp}, D.orgs.map(function(o) { return cmE('option', {key:o.id, value:o.id}, o.name); }))),
+      cmE('div', {style:{display:'flex'}}, cmBtn('Add person', invite, true, !inv.email)),
+      cmE('div', {style:{fontSize:11, color:C.textDim, marginTop:8, lineHeight:1.5}}, 'If the email already has a login, access starts right away. If not, the person is held on the list below until their login exists.')),
+    D.invites.length ? cmE('div', {style:cmLbl}, 'Waiting for a login (' + D.invites.length + ')') : null,
+    D.invites.map(function(i) {
+      return cmE('div', {key:i.id, style:Object.assign({}, card, {display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, fontSize:12})},
+        cmE('div', null, cmE('span', {style:{fontWeight:800}}, i.full_name || i.email), CM_MID + i.email + CM_MID + (i.org_name || '') + CM_MID + cmRoleLabel(i.role_key)),
+        cmE('span', {onClick:function() { call('admin_cancel_invite', {p_id:i.id}, 'Removed ' + i.email + ' from the list.'); }, style:{color:C.red, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'}}, 'Remove'));
+    }),
+    cmE('div', {style:cmLbl}, 'What each role can do by default'),
+    cmTable(guideCols, [{title:'', rows:guideRows}]),
+    cmNote('Everyone with access can see their own winery. Compliance can also see every winery in the facility. Tap a person to give them more or less than their role default.'));
+}
+
 async function getSupaProfile(userId) {
+  const me = await cmLoadAccess();
+  if (me.loaded) return me.has_access ? {full_name:me.full_name, role_key:me.role_key, initials:me.initials, color:me.color, org_id:me.org_id} : {_noAccess:true, role_key:'readonly'};
   const { data } = await supa.from('profiles').select('*').eq('id', userId).single();
   return data;
 }
@@ -5484,6 +5608,7 @@ function App() {
   if (!authSession) {
     return React.createElement(LoginScreen, { onLogin: () => {}, initialError: recoveryError });
   }
+  if (authSession._noAccess) { return React.createElement(CmNoAccess, {email: authSession.email, onLogout: handleLogout}); }
   if (authSession.role === 'super_admin' && !authSession._adminView) {
     return React.createElement(SuperAdminScreen, {
       wineries, accounts: [], setAccounts: ()=>{},
