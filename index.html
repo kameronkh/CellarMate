@@ -4195,7 +4195,7 @@ function CmReportsScreen(props) {
   React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function(e) { if (live) { setRows([]); setErr(e.message); } }); return function() { live = false; }; }, [tab]);
   React.useEffect(function() { if (tab !== 'data') return; let live = true; setData(null); cmFetch(tbl).then(function(r) { if (live) setData(r); }).catch(function(e) { if (live) { setData([]); setErr(e.message); } }); return function() { live = false; }; }, [tab, tbl]);
   const run = function(label, fn) { setBusy(label); setErr(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }).then(function() { setBusy(''); }); };
-  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:640}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['data','Data'],['ask','Q&A']].concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
+  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:720}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['data','Data'],['ask','Q&A']].concat(cmCan('facility_view') ? [['fac','Facility']] : []).concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
   const errBox = err ? cmE('div', {style:{background:C.redDim, border:'1px solid ' + C.red, borderRadius:8, padding:'10px 12px', color:C.red, fontSize:12, marginBottom:12, fontWeight:600}}, err) : null;
   const busyBox = busy ? cmE('div', {style:{fontSize:12, color:C.accentLight, marginBottom:10}}, busy) : null;
 
@@ -4205,6 +4205,7 @@ function CmReportsScreen(props) {
   if (tab === 'work') return cmE(React.Fragment, null, tabs, cmE(CmWork, null));
   if (tab === 'vol') return cmE(React.Fragment, null, tabs, cmE(CmVolumes, null));
   if (tab === 'admin') return cmE(React.Fragment, null, tabs, cmE(CmAdmin, null));
+  if (tab === 'fac') return cmE(React.Fragment, null, tabs, cmE(CmFacility, null));
   if (tab === 'tanks') return cmE(React.Fragment, null, tabs, cmE(CmTanks, null));
   if (tab === 'data') {
     const all = data || [];
@@ -5025,11 +5026,11 @@ function CmDash2(props) {
   const sm = React.useState(false), more = sm[0], setMore = sm[1];
   React.useEffect(function() {
     let live = true;
-    Promise.all([cmStatusRows(), cmFetch('barrel_status_2026'), cmFetch('vessels'), cmFetch('so2_log'), cmFetch('cellar_actions'), cmFetch('questions')]).then(function(a) {
+    Promise.all([cmStatusRows(), cmFetch('barrel_status_2026'), cmFetch('vessels'), cmFetch('so2_log'), cmFetch('cellar_actions'), cmFetch('questions'), cmFresh('work_orders').catch(function() { return []; })]).then(function(a) {
       if (!live) return;
       const m = {}; a[1].forEach(function(r) { if (r.liters != null) m[r.barrel] = Number(r.liters); });
       a[0].forEach(function(r) { r.liters = r.v === 2026 && m[r.raw] != null ? m[r.raw] : 225; r.litKnown = r.v === 2026 && m[r.raw] != null; });
-      setD({rows:a[0], ves:a[2], ap:cmAppetite(a[0], a[3], a[4]), openQ:a[5].filter(function(q) { return q.status === 'Open'; }).length});
+      setD({rows:a[0], ves:a[2], ap:cmAppetite(a[0], a[3], a[4]), openQ:a[5].filter(function(q) { return q.status === 'Open'; }).length, wo:(a[6] || []).filter(function(o) { return o.status === 'Open'; })});
       if (a[0].length && !CM_DASH.on) { CM_DASH.on = true; props.bump(); }
     }).catch(function() { if (live) setD({rows:[], ves:[], ap:{}, openQ:0}); });
     return function() { live = false; };
@@ -5095,6 +5096,11 @@ function CmDash2(props) {
       tile(need.length, 'Alerts', 'need action', need.length ? C.red : C.green, function() { setIss('need'); }),
       tile(alertRows.length, 'SO2 alerts', 'low soon or fast', alertRows.length ? C.orange : C.green, function() { setIss('so2alert'); }),
       tile(D.openQ, 'Questions', 'for you', D.openQ ? C.accentLight : C.green, function() { goReports({tab:'ask'}); })),
+    (function() { const wo = D.wo || []; const late = wo.filter(function(o) { return o.due_on && o.due_on < today(); }).length; const myName = String(CM_ME.full_name || '').toLowerCase(); const mine = wo.filter(function(o) { const a = String(o.assigned_to || '').toLowerCase(); return a && myName && (myName.indexOf(a) !== -1 || a.indexOf(myName) !== -1); }).length;
+      return cmE('div', {onClick:function() { goReports({tab:'work'}); }, style:{background:C.card, border:'1px solid ' + C.cardBorder, borderLeft:'3px solid ' + (late ? C.red : wo.length ? C.accent : C.green), borderRadius:10, padding:'10px 12px', marginBottom:14, cursor:'pointer'}},
+        cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}}, cmE('span', {style:{fontWeight:800, fontSize:14}}, wo.length + ' open work order' + (wo.length === 1 ? '' : 's')), cmE('span', {style:{fontSize:12, color:C.accentLight, fontWeight:700}}, 'Open >')),
+        cmE('div', {style:{fontSize:11, color:late ? C.red : C.textMuted, marginTop:3, fontWeight:late ? 700 : 400}}, !wo.length ? 'Nothing assigned right now.' : (mine + ' assigned to you' + CM_MID + late + ' past due')),
+        wo.slice(0, 3).map(function(o) { return cmE('div', {key:o.id, style:{fontSize:12, color:C.text, marginTop:4}}, o.title + CM_MID + (o.assigned_to || 'Unassigned') + (o.due_on ? CM_MID + 'due ' + o.due_on : '')); })); })(),
     cmE('div', {style:{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}, cmE('div', {style:lbl}, 'Vintage & Varietal'), cmE('span', {onClick:function() { goReports({v:v, variety:variety}); }, style:{fontSize:12, color:C.accentLight, fontWeight:700, cursor:'pointer'}}, 'Reports >')),
     cmE('div', {style:{marginBottom:8}}, cmSeg([['2026','2026'],['2025','2025'],['all','Both']], v, function(x) { setV(x); setVariety('all'); setIss('open'); setMore(false); })),
     cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:6}}, vtiles),
@@ -5169,7 +5175,7 @@ function CmWork() {
   const set = function(k, val) { const o = Object.assign({}, F); o[k] = val; setF(o); };
   const act = function(fn) { setErr(''); setMsg(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }); };
   const db = function() { return supa.schema('cellarmate'); };
-  const people = cmUniq(['Kameron'].concat(orders.map(function(o) { return o.assigned_to; }).filter(Boolean)));
+  const people = cmUniq((CM_ME.team && CM_ME.team.length ? CM_ME.team : ['Kameron']).concat(orders.map(function(o) { return o.assigned_to; }).filter(Boolean)));
   const inp = Object.assign({}, cmSel, {minWidth:0});
   const vn = Number(F.v);
   const base = rows.filter(function(r) { return r.v === vn; });
@@ -5214,7 +5220,7 @@ function CmWork() {
       recs.push(rec);
     });
     if (recs.length) { const r2 = await db().from('cellar_actions').insert(recs); if (r2.error) throw new Error(r2.error.message); }
-    const r3 = await db().from('work_orders').update({status:'Done', done_on:day, done_by:o.assigned_to || (u.data && u.data.user && u.data.user.email) || null}).eq('id', o.id);
+    const r3 = await db().from('work_orders').update({status:'Done', done_on:day, done_by:CM_ME.full_name || o.assigned_to || (u.data && u.data.user && u.data.user.email) || null}).eq('id', o.id);
     if (r3.error) throw new Error(r3.error.message);
     delete CM_CACHE.cellar_actions; delete CM_CACHE.topping_log;
     setMsg('Finished: ' + o.title + (all.length ? ' (' + done.length + ' of ' + all.length + ' barrels logged)' : '')); setOpenId(null); setTick(tick + 1);
@@ -5485,6 +5491,43 @@ function CmAdmin() {
     cmE('div', {style:cmLbl}, 'What each role can do by default'),
     cmTable(guideCols, [{title:'', rows:guideRows}]),
     cmNote('Everyone with access can see their own winery. Compliance can also see every winery in the facility. Tap a person to give them more or less than their role default.'));
+}
+
+/* == CELLARMATE MODULE 10: facility bulk wine inventory == */
+function cmWineryOf(owner) { const s = String(owner || '').toLowerCase(); if (s.indexOf('tystrya') !== -1) return 'Tystrya Estate'; if (s.indexOf('merritt') !== -1 || s.indexOf('necessity') !== -1) return 'Out of Necessity'; if (s.indexOf('dewey') !== -1) return 'RRV'; if (s.indexOf('la tonda') !== -1) return 'La Tonda'; if (s.indexOf('divinity') !== -1) return 'Divinity Wines'; if (s.indexOf('domenico') !== -1) return 'Domenico'; if (s.indexOf('house') !== -1) return 'Facility (house)'; return 'Not assigned'; }
+function cmClassOf(t) { const s = String(t || '').toLowerCase(); if (s.indexOf('port') !== -1 || s.indexOf('forte') !== -1) return 'Fortified'; if (s.indexOf('ros') !== -1) return CM_ROSE; if (s.indexOf('white') !== -1 || s.indexOf('chard') !== -1 || s.indexOf('albari') !== -1) return 'White'; if (s.indexOf('red') !== -1 || s.indexOf('pinot') !== -1 || s.indexOf('pn ') !== -1 || s.indexOf('sawyer') !== -1 || s.indexOf('stiling') !== -1) return 'Red'; return 'Not classified'; }
+function CmFacility() {
+  const sD = React.useState(null), D = sD[0], setD = sD[1];
+  const sE = React.useState(''), err = sE[0], setErr = sE[1];
+  React.useEffect(function() { let live = true;
+    Promise.all([cmLoadVol(), cmFetch('barrel_status_2026'), cmFetch('barrel_status_2025'), cmFetch('vessels')]).then(function(a) { if (live) setD({net:a[0].net, b26:a[1], b25:a[2], ves:a[3]}); })
+      .catch(function(e) { if (live) { setD({net:{}, b26:[], b25:[], ves:[]}); setErr(e.message); } });
+    return function() { live = false; }; }, []);
+  if (!D) return cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading...');
+  const m = {}; let toConfirm = 0, noVol = 0, unassigned = 0;
+  const cell = function(w, v, c) { const k = w + '|' + v + '|' + c; if (!m[k]) m[k] = {winery:w, vint:v, cls:c, barrels:0, bgal:0, tanks:0, tgal:0}; return m[k]; };
+  D.b26.forEach(function(r) { const w = cmWineryOf(r.owner); if (w === 'Not assigned') unassigned++; const c = cell(w, 2026, cmClassOf(r.wine_type)); c.barrels++; c.bgal += Math.max(0, (r.liters != null ? Number(r.liters) : 225) / 3.785 + (D.net[cmCode({v:2026, b:r.barrel})] || 0)); });
+  D.b25.forEach(function(r) { if (String(r.action || '').toLowerCase().indexOf('confirm contents') === 0) { toConfirm++; return; } const c = cell('Tystrya Estate', 2025, cmClassOf(r.wine_type)); c.barrels++; c.bgal += Math.max(0, 225 / 3.785 + (D.net[cmCode({v:2025, b:r.barrel})] || 0)); });
+  D.ves.forEach(function(x) { if (x.vessel_type === 'Barrel' || !cmVesselLive(x)) return; const g = cmVesselGal(x); if (g == null) noVol++; const c = cell(cmWineryOf(x.owner), x.vintage || 'Not written', cmClassOf((x.contents || '') + ' ' + (x.vessel || ''))); c.tanks++; c.tgal += g || 0; });
+  const fmt = function(o, label) { return {vint:label != null ? label : String(o.vint), cls:o.cls || '', barrels:o.barrels || '', bgal:o.barrels ? Math.round(o.bgal).toLocaleString() : '', tanks:o.tanks || '', tgal:o.tanks ? Math.round(o.tgal).toLocaleString() : '', total:Math.round(o.bgal + o.tgal).toLocaleString()}; };
+  const sum = function(list) { return list.reduce(function(s, o) { s.barrels += o.barrels; s.bgal += o.bgal; s.tanks += o.tanks; s.tgal += o.tgal; return s; }, {barrels:0, bgal:0, tanks:0, tgal:0}); };
+  const all = Object.keys(m).map(function(k) { return m[k]; });
+  const wineries = cmUniq(all.map(function(o) { return o.winery; })).sort(function(a, b) { return a === 'Tystrya Estate' ? -1 : b === 'Tystrya Estate' ? 1 : a < b ? -1 : 1; });
+  const groups = wineries.map(function(w) {
+    const list = all.filter(function(o) { return o.winery === w; }).sort(function(a, b) { return String(b.vint) < String(a.vint) ? -1 : String(b.vint) > String(a.vint) ? 1 : a.cls < b.cls ? -1 : 1; });
+    return {title:w, rows:list.map(function(o) { return fmt(o); }).concat([fmt(sum(list), 'Total')])};
+  });
+  const grand = sum(all);
+  groups.push({title:'Facility total', rows:[fmt(grand, 'All wineries')]});
+  const cols = [['vint','Vintage'],['cls','Wine'],['barrels','Barrels'],['bgal','Barrel gal'],['tanks','Tanks and kegs'],['tgal','Tank gal'],['total','Total gal']];
+  return cmE(React.Fragment, null,
+    cmNote((CM_ME.facility_name || 'Facility') + ': bulk wine on hand by winemaker as of ' + cmStamp() + '. Barrels are counted at their listed size, tanks at the volume on file, and both follow the volume ledger. Bottled wine is not tracked yet.'),
+    err ? cmNote(err, C.red) : null,
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:12}}, [['Gallons', Math.round(grand.bgal + grand.tgal).toLocaleString()], ['Winemakers', wineries.filter(function(w) { return w !== 'Not assigned' && w !== 'Facility (house)'; }).length], ['Barrels', grand.barrels], ['Tanks and kegs', grand.tanks]].map(function(t) {
+      return cmE('div', {key:t[0], style:{background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'8px 4px', textAlign:'center'}}, cmE('div', {style:{fontSize:17, fontWeight:800}}, t[1]), cmE('div', {style:{fontSize:10, color:C.textDim, fontWeight:700}}, t[0])); })),
+    cmE(CmExport, {title:'Facility bulk wine inventory', sub:(CM_ME.facility_name || 'Facility') + ', by winemaker', file:'CellarMate_facility_inventory', cols:cols, groups:groups}),
+    cmTable(cols, groups),
+    (toConfirm || noVol || unassigned) ? cmNote('To make this exact: ' + [unassigned ? unassigned + ' barrels have no owner written (listed under Not assigned)' : '', toConfirm ? toConfirm + ' 2025 barrels marked confirm contents are left out' : '', noVol ? noVol + ' tanks or kegs have no volume on file and count as 0 gal' : ''].filter(Boolean).join('; ') + '. The questions list covers each of these.', C.yellow) : null);
 }
 
 async function getSupaProfile(userId) {
