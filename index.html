@@ -4069,13 +4069,13 @@ async function cmStatusRows() {
   const b = await cmFetch('barrel_status_2025'); let acts = []; try { acts = await cmFetch('cellar_actions'); } catch (e) { acts = []; }
   const rows = [];
   a.forEach(function(r) {
-    rows.push({v:2026, b:r.barrel, var:cmVar26(r), lot:r.lot_name || '', who:r.owner || '', ph:cmNum(r.ph_latest), rise:cmNum(r.ph_rise),
+    rows.push({v:2026, org:r.organization_id, b:r.barrel, var:cmVar26(r), lot:r.lot_name || '', who:r.owner || '', ph:cmNum(r.ph_latest), rise:cmNum(r.ph_rise),
       malic:r.malic_g_l_text, mlf:r.mlf_status || '', last:null, lastd:null, est:null, target:cmNum(r.target_free_so2_ppm), g:cmNum(r.so2_grams),
       tab:r.tablets, tart:r.tartaric_g, action:r.action || '', group:r.action_group || '', cat:cmCat(r.action_group)});
   });
   b.forEach(function(r) {
     if (String(r.barrel).length > 12) return;
-    rows.push({v:2025, b:String(r.barrel), var:cmVar25(r), lot:(r.vineyard || 'Vineyard not written') + (r.fermenters ? ' (' + r.fermenters + ')' : ''), who:r.location || '',
+    rows.push({v:2025, org:r.organization_id, b:String(r.barrel), var:cmVar25(r), lot:(r.vineyard || 'Vineyard not written') + (r.fermenters ? ' (' + r.fermenters + ')' : ''), who:r.location || '',
       ph:cmNum(r.ph_latest), rise:null, malic:r.malic_g_l_text, mlf:r.mlf_status || '', last:cmNum(r.last_free_so2_ppm), lastd:r.last_free_so2_date, est:cmNum(r.est_free_so2_now),
       target:cmNum(r.target_free_so2_ppm), g:cmNum(r.so2_grams), tab:r.tablets, tart:r.tartaric, action:r.action || '', group:r.action_group || '', cat:cmCat(r.action_group)});
   });
@@ -4195,7 +4195,7 @@ function CmReportsScreen(props) {
   React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function(e) { if (live) { setRows([]); setErr(e.message); } }); return function() { live = false; }; }, [tab]);
   React.useEffect(function() { if (tab !== 'data') return; let live = true; setData(null); cmFetch(tbl).then(function(r) { if (live) setData(r); }).catch(function(e) { if (live) { setData([]); setErr(e.message); } }); return function() { live = false; }; }, [tab, tbl]);
   const run = function(label, fn) { setBusy(label); setErr(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }).then(function() { setBusy(''); }); };
-  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:720}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['data','Data'],['ask','Q&A']].concat(cmCan('facility_view') ? [['fac','Facility']] : []).concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
+  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:780}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['data','Data'],['ask','Q&A']].concat(cmCan('facility_view') ? [['fac','Facility'],['ttb','TTB']] : []).concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
   const errBox = err ? cmE('div', {style:{background:C.redDim, border:'1px solid ' + C.red, borderRadius:8, padding:'10px 12px', color:C.red, fontSize:12, marginBottom:12, fontWeight:600}}, err) : null;
   const busyBox = busy ? cmE('div', {style:{fontSize:12, color:C.accentLight, marginBottom:10}}, busy) : null;
 
@@ -4206,6 +4206,7 @@ function CmReportsScreen(props) {
   if (tab === 'vol') return cmE(React.Fragment, null, tabs, cmE(CmVolumes, null));
   if (tab === 'admin') return cmE(React.Fragment, null, tabs, cmE(CmAdmin, null));
   if (tab === 'fac') return cmE(React.Fragment, null, tabs, cmE(CmFacility, null));
+  if (tab === 'ttb') return cmE(React.Fragment, null, tabs, cmE(CmTtb, null));
   if (tab === 'tanks') return cmE(React.Fragment, null, tabs, cmE(CmTanks, null));
   if (tab === 'data') {
     const all = data || [];
@@ -4496,10 +4497,11 @@ function CmFocusReports(props) {
     title = 'Tartaric additions for high pH';
     const lit = {}; X.raw26.forEach(function(r) { lit[r.barrel] = r.liters; });
     const hi = vr.filter(function(r) { return r.ph != null && r.ph >= 3.8; }).sort(function(a, b) { return b.ph - a.ph; });
-    const mk = function(r) { const L = vn === 2026 && lit[r.raw] ? Number(lit[r.raw]) : 225; const o = Object.assign(base(r), {ph:cmFix(r.ph, 2), liters:L + (vn === 2026 && lit[r.raw] ? '' : ' (assumed)'), sheet:cmTartRec(r.tart)});
+    const mk = function(r) { const L = vn === 2026 && lit[r.raw] ? Number(lit[r.raw]) : 225; const o = Object.assign(base(r), {ph:cmFix(r.ph, 2), liters:L + (vn === 2026 && lit[r.raw] ? '' : ' (assumed)'), sheet:cmTartRec(r.tart)}); const nd = r.ph >= 3.83 ? Math.ceil(((r.ph - 3.82) / CM_TART_PH_PER_GL) * 20 - 0.0001) / 20 : 0; o.need = nd ? nd.toFixed(2) + ' g/L = ' + cmFix(nd * L, 1) + ' g' : 'already below 3.83';
       [0.25, 0.5, 0.75, 1].forEach(function(d) { o['g' + d] = cmFix(d * L, 1) + ' g'; o['p' + d] = cmFix(r.ph - d * CM_TART_PH_PER_GL, 2); }); return o; };
-    cols = [['b','Barrel'],['var','Varietal'],['lot','Lot / vineyard'],['ph','pH now'],['liters','Liters'],['g0.25','0.25 g/L'],['p0.25','est. pH'],['g0.5','0.50 g/L'],['p0.5','est. pH'],['g0.75','0.75 g/L'],['p0.75','est. pH'],['g1','1.00 g/L'],['p1','est. pH'],['sheet','Recommended on status sheet']];
-    groups = [{title:'pH 3.90 and higher', rows:hi.filter(function(r) { return r.ph >= 3.9; }).map(mk)}, {title:'pH 3.80 to 3.89', rows:hi.filter(function(r) { return r.ph < 3.9; }).map(mk)}];
+    cols = [['b','Barrel'],['var','Varietal'],['lot','Lot / vineyard'],['ph','pH now'],['liters','Liters'],['need','To get below 3.83'],['g0.25','0.25 g/L'],['p0.25','est. pH'],['g0.5','0.50 g/L'],['p0.5','est. pH'],['g0.75','0.75 g/L'],['p0.75','est. pH'],['g1','1.00 g/L'],['p1','est. pH'],['sheet','Recommended on status sheet']];
+    groups = [{title:'pH 3.83 and higher: needs tartaric so sulfur binds better', rows:hi.filter(function(r) { return r.ph >= 3.83; }).map(mk)}, {title:'pH 3.80 to 3.82: already below the 3.83 threshold (watch)', rows:hi.filter(function(r) { return r.ph < 3.83; }).map(mk)}];
+    notes.push('How this report is used: test pH, add the tartaric, then re-test pH once the addition has settled and enter the reading below, so expected and measured pH can be compared.');
     notes.push('Estimated pH assumes each 1.0 g/L of tartaric lowers pH by about ' + CM_TART_PH_PER_GL.toFixed(2) + '. Real wines buffer differently, so treat these as planning numbers and confirm with a bench trial or the follow-up pH below.');
     const mine = X.tart.filter(function(t) { return Number(t.vintage) === vn; });
     const inp = Object.assign({}, cmSel, {width:'auto', flex:1, minWidth:0});
@@ -4507,7 +4509,7 @@ function CmFocusReports(props) {
       cmE('div', {style:cmLbl}, 'Record an addition'),
       cmE('div', {style:{display:'flex', gap:6, marginBottom:8}},
         cmE('select', {value:form.barrel, onChange:function(e) { setForm(Object.assign({}, form, {barrel:e.target.value})); }, style:inp}, [cmE('option', {key:'', value:''}, 'Barrel...')].concat(hi.map(function(r) { return cmE('option', {key:r.b, value:r.b}, r.b + ' (pH ' + cmFix(r.ph, 2) + ')'); }))),
-        cmE('select', {value:form.dose, onChange:function(e) { setForm(Object.assign({}, form, {dose:e.target.value})); }, style:inp}, ['0.25','0.5','0.75','1'].map(function(d) { return cmE('option', {key:d, value:d}, d + ' g/L'); })),
+        cmE('select', {value:form.dose, onChange:function(e) { setForm(Object.assign({}, form, {dose:e.target.value})); }, style:inp}, ['0.1','0.25','0.5','0.75','1','1.2','1.25','1.5'].map(function(d) { return cmE('option', {key:d, value:d}, d + ' g/L'); })),
         cmE('input', {type:'date', value:form.date, onChange:function(e) { setForm(Object.assign({}, form, {date:e.target.value})); }, style:inp})),
       cmBtn('Save addition', function() { save(async function() {
         const r = hi.filter(function(x) { return x.b === form.barrel; })[0]; if (!r) throw new Error('Pick a barrel first.');
@@ -4671,7 +4673,7 @@ function cmExtraReport(rep, rows, X) {
   if (rep === 'ml') {
     const mk = function(r, call) { return {b:r.b, col:r.col, var:r.var, lot:r.lot, who:r.who, ph:r.ph == null ? 'not read' : r.ph.toFixed(2), malic:r.malic == null ? 'by lot' : r.malic, mlf:r.mlf, so2:so2n(r), call:call, action:r.action}; };
     const dose = r26.filter(function(r) { return /ML dose/.test(r.action); });
-    const still = r26.filter(function(r) { return /^In MLF/.test(r.mlf) && !/ML dose/.test(r.action); });
+    const still = r26.filter(function(r) { return /^In MLF/.test(r.mlf) && !/ML dose/.test(r.action) && r.cat !== 'add' && r.cat !== 'ok'; });
     const ours = function(r) { return r.who === 'Tystrya'; };
     const yes = dose.filter(function(r) { return r.ph != null && r.ph <= 3.6; });
     const no = dose.filter(function(r) { return r.ph == null || r.ph > 3.6; });
@@ -4692,10 +4694,13 @@ function cmExtraReport(rep, rows, X) {
     const pick = function(fn) { return ch.filter(fn).map(mk); };
     return {title:'2026 Chardonnay: SO2 by malic', sub:'Vintage 2026', file:'CellarMate_chardonnay_SO2_2026',
       cols:[['b','Barrel'],['lot','Lot'],['ph','pH'],['malic','Malic g/L'],['mlf','MLF'],['target','Target ppm'],['add','Add SO2'],['action','Action']],
-      groups:[{title:'Malic fine: add SO2 now', rows:pick(function(r) { return r.cat === 'add'; })},
+      groups:[{title:'Malic fine: add SO2 now', rows:pick(function(r) { return r.cat === 'add' && !/winemaker call/.test(r.group); })},
+        {title:'Winemaker call: add SO2 to lock in the taste (MLF stopped or not tested)', rows:pick(function(r) { return r.cat === 'add' && /winemaker call/.test(r.group); })},
+        {title:'Not dry: no SO2 until Brix is checked', rows:pick(function(r) { return /not dry/.test(r.group); })},
+        {title:'SO2 added: test free SO2 next', rows:pick(function(r) { return r.cat === 'ok'; })},
         {title:'Malic fine, SO2 went in 11/18: test free SO2 and top up', rows:pick(function(r) { return /SO2 already in/.test(r.group); })},
         {title:'No malic test yet: test before SO2', rows:pick(function(r) { return r.group === 'Test malic'; })},
-        {title:'Still in MLF: hold SO2', rows:pick(function(r) { return r.cat === 'hold'; })}],
+        {title:'Still in MLF: hold SO2', rows:pick(function(r) { return r.cat === 'hold' && !/not dry/.test(r.group); })}],
       notes:['Malic fine means tested under 0.20 g/L, or called done by lot match with a tested barrel from the same lot.']};
   }
   return null;
@@ -4758,7 +4763,7 @@ function CmLogWork() {
       let num = null;
       if (reading) { num = Number(val); if (val === '' || isNaN(num)) throw new Error('Enter the reading as a number.'); }
       const org = await cmOrg();
-      const recs = chosen.map(function(r) { return {organization_id:org, vintage:vn, barrel:r.raw, action_type:type, done_on:date, grams:type === 'so2' ? r.g : null, value:num, note:type === 'note' ? val : null}; });
+      const recs = chosen.map(function(r) { return {organization_id:r.org || org, vintage:vn, barrel:r.raw, action_type:type, done_on:date, grams:type === 'so2' ? r.g : null, value:num, note:type === 'note' ? val : null}; });
       const res = await supa.schema('cellarmate').from('cellar_actions').insert(recs);
       if (res.error) throw new Error(res.error.message);
       setMsg('Saved ' + recs.length + ' ' + cmActLabel(type) + ' entr' + (recs.length === 1 ? 'y' : 'ies') + ' for ' + date + '.'); setVal(''); refresh();
@@ -5213,7 +5218,7 @@ function CmWork() {
       if (r1.error) throw new Error(r1.error.message);
     } else done.forEach(function(code) {
       const r = byCode[code]; const raw = r ? r.raw : code;
-      const rec = {organization_id:org, vintage:o.vintage, barrel:raw, action_type:'note', done_on:day, grams:null, value:null, note:null};
+      const rec = {organization_id:(r && r.org) || org, vintage:o.vintage, barrel:raw, action_type:'note', done_on:day, grams:null, value:null, note:null};
       if (o.task_type === 'so2') { rec.action_type = 'so2'; rec.grams = r && r.g != null ? r.g : fb; }
       else if (o.task_type === 'ml') rec.action_type = 'ml';
       else rec.note = 'Work order done: ' + o.title;
@@ -5450,7 +5455,7 @@ function CmAdmin() {
         g.orgs.map(function(o) {
           return cmE('div', {key:o.id, style:{display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, padding:'7px 0', borderTop:'1px solid ' + C.cardBorder, fontSize:12}},
             cmE('div', {style:{minWidth:0}}, cmE('span', {style:{fontWeight:800, fontSize:13}}, o.name), cmE('span', {style:{color:C.textMuted, marginLeft:6}}, (o.contact_name ? o.contact_name + CM_MID : '') + nUsers(o) + ' user' + (nUsers(o) === 1 ? '' : 's')),
-              o.notes ? cmE('div', {style:{color:C.textDim, fontSize:11}}, o.notes) : null),
+              o.notes || o.managed_by ? cmE('div', {style:{color:C.textDim, fontSize:11}}, (o.managed_by ? 'Winemaking by ' + ((D.orgs.filter(function(x) { return x.id === o.managed_by; })[0] || {}).name || 'another winery') + '. ' : '') + (o.notes || '')) : null),
             sup ? cmE('span', {onClick:function() { setOrg(o, {uses_app:!o.uses_app}, o.name + (o.uses_app ? ' set to facility records only.' : ' set to using the app.')); }, style:{color:o.uses_app ? C.green : C.textDim, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'}}, o.uses_app ? 'Uses the app' : 'Records only')
                 : cmE('span', {style:{color:o.uses_app ? C.green : C.textDim, fontWeight:700, whiteSpace:'nowrap'}}, o.uses_app ? 'Uses the app' : 'Records only'));
         }),
@@ -5620,6 +5625,100 @@ function CmFacility() {
     checks.map(checkCard),
     older.length ? cmE('div', {style:cmLbl}, 'Still open from earlier quarters') : null,
     older.map(checkCard));
+}
+
+/* == CELLARMATE MODULE 12: bonds, per-bond volume ledger and the TTB working draft == */
+function CmTtb() {
+  const n0 = new Date();
+  const sD = React.useState(null), D = sD[0], setD = sD[1];
+  const sT = React.useState(0), tick = sT[0], setTick = sT[1];
+  const sB = React.useState(''), bondId = sB[0], setBondId = sB[1];
+  const sP = React.useState({kind:'quarter', year:String(n0.getFullYear()), q:String(Math.floor(n0.getMonth() / 3) + 1), m:String(n0.getMonth() + 1)}), P = sP[0], setP = sP[1];
+  const sN = React.useState({name:'', reg:''}), nb = sN[0], setNb = sN[1];
+  const sE = React.useState(''), err = sE[0], setErr = sE[1];
+  const sM = React.useState(''), msg = sM[0], setMsg = sM[1];
+  const db = function() { return supa.schema('cellarmate'); };
+  React.useEffect(function() { let live = true;
+    Promise.all([cmLoadVol(), cmFetch('barrel_status_2026'), cmFetch('barrel_status_2025'), cmFetch('vessels'), db().from('organizations').select('*').order('name'), db().from('bonds').select('*').order('name'), cmFresh('bottlings')]).then(function(a) {
+      if (!live) return; if (a[4].error) throw new Error(a[4].error.message); if (a[5].error) throw new Error(a[5].error.message);
+      setD({moves:a[0].moves, net:a[0].net, b26:a[1], b25:a[2], ves:a[3], orgs:a[4].data || [], bonds:a[5].data || [], bot:a[6]}); })
+      .catch(function(e) { if (live) { setD({moves:[], net:{}, b26:[], b25:[], ves:[], orgs:[], bonds:[], bot:[]}); setErr(e.message); } });
+    return function() { live = false; }; }, [tick]);
+  if (!D) return cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading...');
+  const sup = !!CM_ME.is_super_admin;
+  const inp = Object.assign({}, cmSel, {minWidth:0});
+  const bond = D.bonds.filter(function(b) { return b.id === bondId; })[0] || D.bonds[0];
+  const pad = function(x) { return x < 10 ? '0' + x : String(x); };
+  const y = Number(P.year); let from, to, label;
+  if (P.kind === 'year') { from = y + '-01-01'; to = y + '-12-31'; label = 'Year ' + y; }
+  else if (P.kind === 'quarter') { const q = Number(P.q); from = y + '-' + pad((q - 1) * 3 + 1) + '-01'; to = y + '-' + pad(q * 3) + '-' + (q === 1 || q === 4 ? '31' : '30'); label = y + ' Q' + q; }
+  else { const mo = Number(P.m); from = y + '-' + pad(mo) + '-01'; to = y + '-' + pad(mo) + '-' + pad(new Date(y, mo, 0).getDate()); label = y + '-' + pad(mo); }
+  const orgBond = {}; D.orgs.forEach(function(o) { orgBond[o.name] = o.bond_id; });
+  const info = {};
+  D.b26.forEach(function(r) { const code = cmCode({v:2026, b:r.barrel}); info[code] = {w:cmWineryOf(r.owner), cls:cmClassOf(r.wine_type), start:(r.liters != null ? Number(r.liters) : 225) / 3.785}; });
+  D.b25.forEach(function(r) { if (String(r.action || '').toLowerCase().indexOf('confirm contents') === 0) return; const code = cmCode({v:2025, b:r.barrel}); info[code] = {w:'Tystrya Estate', cls:cmClassOf(r.wine_type), start:225 / 3.785}; });
+  D.ves.forEach(function(x) { if (x.vessel_type === 'Barrel') return; info[x.vessel] = {w:cmWineryOf(x.owner), cls:cmClassOf((x.contents || '') + ' ' + (x.vessel || '')), start:cmVesselLive(x) ? (cmVesselGal0(x) || 0) : 0}; });
+  const inBond = function(n) { const i = info[n]; if (!i || !bond) return false; const w = i.w === 'Not assigned' || i.w === 'Facility (house)' ? 'Tystrya Estate' : i.w; return orgBond[w] === bond.id; };
+  const colOf = function(n) { return info[n] && info[n].cls === 'Fortified' ? 'b' : 'a'; };
+  const Z = function() { return {a:0, b:0}; };
+  const L = {begin:Z(), ferm:Z(), recv:Z(), gain:Z(), bottled:Z(), xfer:Z(), loss:Z(), invloss:Z(), end:Z()};
+  Object.keys(info).forEach(function(n) { if (inBond(n)) L.end[colOf(n)] += Math.max(0, info[n].start + (D.net[n] || 0)); });
+  const led = [];
+  D.moves.forEach(function(m) { const g = Number(m.gallons) || 0; const d = String(m.moved_on); const f = m.from_vessel, t = m.to_vessel; const fin = f && inBond(f), tin = t && inBond(t);
+    if (!fin && !tin) return;
+    if (d > to) { if (fin) L.end[colOf(f)] += g; if (tin) L.end[colOf(t)] -= g; return; }
+    if (d < from) return;
+    led.push({b:d, type:cmMoveLabel(m.move_type), from:f || '', to:t || '', gal:g, w:info[f || t] ? info[f || t].w : '', note:m.note || ''});
+    if (m.move_type === 'bottle') { if (fin) L.bottled[colOf(f)] += g; }
+    else if (m.move_type === 'loss') { if (fin) L.loss[colOf(f)] += g; }
+    else if (m.move_type === 'fix') { if (fin) L.invloss[colOf(f)] += g; if (tin) L.gain[colOf(t)] += g; }
+    else if (m.move_type === 'add') { if (tin) L.recv[colOf(t)] += g; }
+    else { if (fin && !tin) L.xfer[colOf(f)] += g; if (tin && !fin) L.recv[colOf(t)] += g; if (fin && tin && colOf(f) !== colOf(t)) { L.xfer[colOf(f)] += g; L.recv[colOf(t)] += g; } }
+  });
+  ['a','b'].forEach(function(c) { L.begin[c] = L.end[c] - L.recv[c] - L.gain[c] - L.ferm[c] + L.bottled[c] + L.xfer[c] + L.loss[c] + L.invloss[c]; });
+  const f0 = function(x) { return Math.round(x).toLocaleString(); };
+  const row = function(lbl, o, bold) { return {b:lbl, a:f0(o.a), bb:f0(o.b), tot:f0(o.a + o.b)}; };
+  const tin = {a:L.begin.a + L.ferm.a + L.recv.a + L.gain.a, b:L.begin.b + L.ferm.b + L.recv.b + L.gain.b};
+  const tout = {a:L.bottled.a + L.xfer.a + L.loss.a + L.invloss.a + L.end.a, b:L.bottled.b + L.xfer.b + L.loss.b + L.invloss.b + L.end.b};
+  const botP = D.bot.filter(function(b) { return String(b.bottled_on) >= from && String(b.bottled_on) <= to && orgBond[b.winery || 'Tystrya Estate'] === (bond && bond.id); });
+  const botGal = {a:0, b:0}; botP.forEach(function(b) { botGal[b.wine_class === 'Fortified' ? 'b' : 'a'] += Number(b.gallons || 0); });
+  const cols = [['b','Line'],['a','Not over 16% alcohol'],['bb','Over 16 to 21%'],['tot','All classes']];
+  const groups = [
+    {title:'Section A, bulk wine: in', rows:[row('On hand, beginning of period', L.begin), row('Produced by fermentation (not tracked yet)', L.ferm), row('Received in bond', L.recv), row('Inventory gains', L.gain), row('Total', tin)]},
+    {title:'Section A, bulk wine: out', rows:[row('Bottled', L.bottled), row('Transferred in bond', L.xfer), row('Losses, other than inventory', L.loss), row('Inventory losses', L.invloss), row('On hand, end of period', L.end), row('Total', tout)]},
+    {title:'Section B, bottled wine', rows:[row('Bottled in the period', botGal), {b:'Removed taxpaid, and bottled on hand (not tracked yet)', a:'', bb:'', tot:''}]}];
+  const ledCols = [['b','Date'],['type','Move'],['from','From'],['to','To'],['gal','Gallons'],['w','Winemaker'],['note','Note']];
+  const addBond = function() { setErr(''); setMsg(''); Promise.resolve().then(async function() { if (!nb.name.trim()) throw new Error('Enter the name on the bond.'); const r = await db().from('bonds').insert({name:nb.name.trim(), registry_no:nb.reg.trim() || null, facility_id:CM_ME.facility_id || null}); if (r.error) throw new Error(r.error.message); setMsg('Bond added.'); setNb({name:'', reg:''}); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const setOrgBond = function(o, id) { setErr(''); setMsg(''); Promise.resolve().then(async function() { const r = await db().from('organizations').update({bond_id:id || null}).eq('id', o.id); if (r.error) throw new Error(r.error.message); setMsg(o.name + ' moved to that bond.'); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const setReg = function(b, v) { setErr(''); setMsg(''); Promise.resolve().then(async function() { const r = await db().from('bonds').update({registry_no:v || null}).eq('id', b.id); if (r.error) throw new Error(r.error.message); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const card = {background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'10px 12px', marginBottom:8};
+  return cmE(React.Fragment, null,
+    cmNote('Working draft of the TTB Report of Wine Premises Operations (5120.17), built from the volume ledger for one bond. Check every line against the current TTB form before filing. Starting volumes are the amounts on file as of Nov 20, 2026, so periods before that date are not meaningful.', C.yellow),
+    err ? cmNote(err, C.red) : null,
+    msg ? cmNote(msg, C.green) : null,
+    cmE('div', {style:cmLbl}, 'Bonds'),
+    D.bonds.map(function(b) { const mine = D.orgs.filter(function(o) { return o.bond_id === b.id; });
+      return cmE('div', {key:b.id, style:Object.assign({}, card, {borderLeft:'3px solid ' + (bond && bond.id === b.id ? C.accent : C.cardBorder)})},
+        cmE('div', {onClick:function() { setBondId(b.id); }, style:{cursor:'pointer'}}, cmE('div', {style:{fontWeight:800, fontSize:14}}, b.name), cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, 'Registry number: ' + (b.registry_no || 'not entered') + CM_MID + mine.length + ' winemaker' + (mine.length === 1 ? '' : 's') + ': ' + (mine.map(function(o) { return o.name; }).join(', ') || 'none'))),
+        sup ? cmE('div', {style:{display:'flex', gap:8, marginTop:8}}, cmE('input', {defaultValue:b.registry_no || '', placeholder:'Registry number, for example BWN-OR-12345', onBlur:function(e) { if ((e.target.value || '') !== (b.registry_no || '')) setReg(b, e.target.value.trim()); }, style:inp})) : null);
+    }),
+    sup ? cmE('div', {style:card},
+      cmE('div', {style:cmLbl}, 'Which bond is each winemaker under'),
+      D.orgs.filter(function(o) { return o.facility_id; }).map(function(o) { return cmE('div', {key:o.id, style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, alignItems:'center', marginBottom:6, fontSize:12}}, cmE('span', {style:{fontWeight:700}}, o.name), cmE('select', {value:o.bond_id || '', onChange:function(e) { setOrgBond(o, e.target.value); }, style:inp}, [cmE('option', {key:'', value:''}, 'No bond set')].concat(D.bonds.map(function(b) { return cmE('option', {key:b.id, value:b.id}, b.name); })))); }),
+      cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, marginTop:8}}, cmE('input', {value:nb.name, onChange:function(e) { setNb(Object.assign({}, nb, {name:e.target.value})); }, placeholder:'New bond: name on the bond', style:inp}), cmE('input', {value:nb.reg, onChange:function(e) { setNb(Object.assign({}, nb, {reg:e.target.value})); }, placeholder:'Registry number', style:inp}), cmBtn('Add', addBond, false, false))) : null,
+    cmE('div', {style:cmLbl}, 'Period'),
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:12}},
+      cmE('select', {value:P.kind, onChange:function(e) { setP(Object.assign({}, P, {kind:e.target.value})); }, style:inp}, [['month','Monthly'],['quarter','Quarterly'],['year','Yearly']].map(function(o) { return cmE('option', {key:o[0], value:o[0]}, o[1]); })),
+      cmE('select', {value:P.year, onChange:function(e) { setP(Object.assign({}, P, {year:e.target.value})); }, style:inp}, [n0.getFullYear() - 1, n0.getFullYear(), n0.getFullYear() + 1].map(function(v) { return cmE('option', {key:v, value:String(v)}, v); })),
+      P.kind === 'quarter' ? cmE('select', {value:P.q, onChange:function(e) { setP(Object.assign({}, P, {q:e.target.value})); }, style:inp}, ['1','2','3','4'].map(function(v) { return cmE('option', {key:v, value:v}, 'Q' + v); }))
+        : P.kind === 'month' ? cmE('select', {value:P.m, onChange:function(e) { setP(Object.assign({}, P, {m:e.target.value})); }, style:inp}, [1,2,3,4,5,6,7,8,9,10,11,12].map(function(v) { return cmE('option', {key:v, value:String(v)}, pad(v)); })) : cmE('div', null)),
+    !bond ? cmNote('No bond is set up yet.') : cmE(React.Fragment, null,
+      cmE('div', {style:{fontSize:13, fontWeight:800, marginBottom:6}}, bond.name + CM_MID + label + ' (' + from + ' to ' + to + ')' + CM_MID + 'gallons'),
+      cmE(CmExport, {title:'TTB 5120.17 working draft', sub:bond.name + ' | ' + (bond.registry_no || 'registry number not entered') + ' | ' + label + ' | gallons', file:'CellarMate_TTB_draft_' + label.replace(/ /g, '_'), cols:cols, groups:groups}),
+      cmTable(cols, groups),
+      cmE('div', {style:cmLbl}, 'Volume ledger for this bond and period (' + led.length + ' moves)'),
+      !led.length ? cmNote('No moves recorded for this bond in the period.') : cmE(React.Fragment, null, cmE(CmExport, {title:'Volume ledger by bond', sub:bond.name + ' | ' + label, file:'CellarMate_bond_ledger_' + label.replace(/ /g, '_'), cols:ledCols, groups:[{title:'', rows:led}]}), cmTable(ledCols, [{title:'', rows:led}])),
+      cmNote('Not in this draft yet: wine produced by fermentation, sweetening and blending lines, removals taxpaid, bottled wine on hand, and Parts II to X. Tax class comes from the wine type on file: port-style wines are placed over 16%, everything else not over 16%. Barrels with no owner written are counted under Tystrya Estate.')));
 }
 
 async function getSupaProfile(userId) {
