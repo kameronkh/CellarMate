@@ -5110,6 +5110,28 @@ function CmDash2(props) {
     vOther.length ? cmE('div', {style:{fontSize:10, color:C.textDim, marginTop:6}}, vOther.length + ' other vessel' + (vOther.length === 1 ? '' : 's') + ' in the building belong to Merritt (Out of Necessity) and Dewey (RRV) and are not counted.') : null);
 }
 
+/* == CELLARMATE MODULE 7: barrel watch-outs from the cellar status records == */
+function cmWatch(lot, last, settings) {
+  const r = CM_DB.map ? CM_DB.map[lot.name] : null;
+  if (!r || Number(lot.vintage) !== r.v) return agentEngine(lot, last, settings);
+  const col = CM_CAT_COLOR[r.cat] || C.textDim;
+  const label = (CM_CATS.filter(function(c) { return c[0] === r.cat; })[0] || ['', 'Status'])[1];
+  const bits = [];
+  bits.push('pH ' + (r.ph == null ? 'not read' : Number(r.ph).toFixed(2)));
+  bits.push('malic ' + (r.malic == null ? 'not tested' : r.malic));
+  bits.push(r.mlf || 'MLF not recorded');
+  if (r.est != null) bits.push('free SO2 about ' + r.est + ' ppm');
+  if (r.target != null) bits.push('target ' + r.target + ' ppm');
+  if (r.g != null) bits.push('add ' + r.g + ' g' + (r.tab ? ' (' + r.tab + ')' : ''));
+  const out = [{level:r.cat === 'ok' ? 'ok' : 'warn', icon:'', title:label + ': ' + (r.action || 'no action on file'), color:col, bg:C.bg, msg:bits.join(CM_MID)}];
+  if (r.ph != null && Number(r.ph) >= 3.8) {
+    const p = Number(r.ph);
+    out.push({level:'warn', icon:'', title:'High pH ' + p.toFixed(2), color:C.yellow, bg:C.bg, msg:'Tartaric at 0.5 g/L would bring it to about ' + (p - 0.5 * CM_TART_PH_PER_GL).toFixed(2) + ', and 1.0 g/L to about ' + (p - CM_TART_PH_PER_GL).toFixed(2) + '. ' + (r.tart ? 'On the sheet: ' + cmTartRec(r.tart) + '. ' : '') + 'Re-test pH after the addition to check against this estimate.'});
+  }
+  if (r.malic == null && r.rise != null && Number(r.rise) >= 0.15) out.push({level:'warn', icon:'', title:'pH has risen ' + Number(r.rise).toFixed(2) + ' since the first reading on file', color:C.yellow, bg:C.bg, msg:'A rise this size usually goes with MLF finishing. Confirm with a malic test before sulfuring.'});
+  return out;
+}
+
 async function getSupaProfile(userId) {
   const { data } = await supa.from('profiles').select('*').eq('id', userId).single();
   return data;
@@ -5397,7 +5419,7 @@ screen===SCREENS.lots&&(React.createElement(React.Fragment, null, React.createEl
                 React.createElement("button", {key: t.k, onClick: ()=>setDTab(t.k), style: {background:detailTab===t.k?C.accent:C.card,border:`1px solid ${detailTab===t.k?C.accent:C.cardBorder}`,color:detailTab===t.k?"#fff":C.textMuted,borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}, t.l)
               ))), detailTab==="overview"&&(React.createElement(React.Fragment, null, last&&React.createElement(Card, {style: {background:C.accentDim,border:`1px solid ${C.accent}44`}}, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.accentLight,letterSpacing:1.1,textTransform:"uppercase",marginBottom:12}}, "Latest ·", last.date), React.createElement("div", {style: {display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}, [{l:"Brix",v:last.brix},{l:"pH",v:last.ph},{l:"TA",v:last.ta},{l:"Free SO₂",v:last.so2Free},{l:"Total SO₂",v:last.totalSo2},{l:"VA",v:last.va},{l:"Temp",v:last.temp?`${last.temp}°F`:null},{l:"Malic",v:last.malic}].filter(r=>r.v!=null).map(r=>(
                     React.createElement("div", {key: r.l, style: {textAlign:"center",background:"#ffffff0a",borderRadius:8,padding:"10px 6px"}}, React.createElement("div", {style: {fontSize:20,fontWeight:800}}, r.v), React.createElement("div", {style: {fontSize:10,color:C.textDim,fontWeight:600,marginTop:2}}, r.l))
-                  ))), last.notes&&React.createElement("div", {style: {marginTop:12,fontSize:13,color:C.textMuted,borderTop:`1px solid ${C.accent}22`,paddingTop:10,fontStyle:"italic"}}, "\"", last.notes, "\"")), React.createElement(Card, null, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:12}}, "🤖 Agent Watch-Outs"), agentEngine(lot, last, settings).map((item,i)=>(
+                  ))), last.notes&&React.createElement("div", {style: {marginTop:12,fontSize:13,color:C.textMuted,borderTop:`1px solid ${C.accent}22`,paddingTop:10,fontStyle:"italic"}}, "\"", last.notes, "\"")), React.createElement(Card, null, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:12}}, "🤖 Agent Watch-Outs"), cmWatch(lot, last, settings).map((item,i)=>(
                   React.createElement("div", {key: i, style: {background:item.bg||C.bg,border:`1px solid ${item.color}44`,borderRadius:10,padding:"10px 12px",marginBottom:8}}, React.createElement("div", {style: {fontSize:13,fontWeight:700,color:item.color,marginBottom:4}}, item.icon, item.title), React.createElement("div", {style: {fontSize:12,color:C.textMuted,lineHeight:1.5}}, item.msg))
                 ))), React.createElement("button", {onClick: ()=>{setForm(f=>({...f,lotId:String(lot.id)}));go(SCREENS.log,SCREENS.detail)}, style: {width:"100%",background:`linear-gradient(135deg,${C.accent},#6d28d9)`,border:"none",borderRadius:14,padding:14,color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}, "+ Log New Reading"))), detailTab==="chart"&&React.createElement(Card, null, React.createElement("div", {style: {fontSize:11,fontWeight:700,color:C.textDim,letterSpacing:1.1,textTransform:"uppercase",marginBottom:14}}, "Brix Fermentation Curve"), React.createElement(BrixChart, {logs: lot.logs}), lot.logs.filter(l=>l.brix!=null).length>=2&&React.createElement("div", {style: {marginTop:14,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,borderTop:`1px solid ${C.cardBorder}`,paddingTop:14}}, [{label:"Start Brix",value:Math.max(...lot.logs.filter(l=>l.brix).map(l=>l.brix))+"°"},{label:"Final Brix",value:lot.logs.filter(l=>l.brix!=null).slice(-1)[0].brix+"°"},{label:"Readings",value:lot.logs.filter(l=>l.brix!=null).length}].map(s=>(
                   React.createElement("div", {key: s.label, style: {textAlign:"center"}}, React.createElement("div", {style: {fontSize:18,fontWeight:800}}, s.value), React.createElement("div", {style: {fontSize:10,color:C.textDim,fontWeight:600,marginTop:2}}, s.label))
