@@ -4020,7 +4020,7 @@ const CM_TABLE_LIST = [
   ['tasting_notes','Tasting notes'],['cellar_trials','Cellar trials'],['fermenters','Fermenters'],['ferment_readings','Ferment readings'],
   ['picks','Picks'],['fruit_ownership','Fruit ownership'],['estate_harvests','Estate harvests'],['vineyard_blocks','Vineyard blocks'],
   ['vineyard_sprays','Vineyard sprays'],['soil_tests','Soil tests'],['tissue_tests','Tissue tests'],['bottled_skus','Bottled SKUs'],
-  ['custom_crush_quotes','Custom crush quotes'],['cellar_locations','Cellar locations'],['data_gaps','Open questions'],['cellar_actions','Work log (SO2, ML, readings)'],['topping_log','Topping log'],['tartaric_additions','Tartaric additions'],['work_orders','Work orders'],['volume_moves','Volume ledger']
+  ['custom_crush_quotes','Custom crush quotes'],['cellar_locations','Cellar locations'],['data_gaps','Open questions'],['cellar_actions','Work log (SO2, ML, readings)'],['topping_log','Topping log'],['tartaric_additions','Tartaric additions'],['work_orders','Work orders'],['volume_moves','Volume ledger'],['bottlings','Bottlings'],['wine_reviews','Wine reviews'],['facility_checks','Quarterly checks']
 ];
 const CM_CACHE = {};
 const CM_HIDE = {id:1, organization_id:1, created_at:1, updated_at:1};
@@ -4195,7 +4195,7 @@ function CmReportsScreen(props) {
   React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function(e) { if (live) { setRows([]); setErr(e.message); } }); return function() { live = false; }; }, [tab]);
   React.useEffect(function() { if (tab !== 'data') return; let live = true; setData(null); cmFetch(tbl).then(function(r) { if (live) setData(r); }).catch(function(e) { if (live) { setData([]); setErr(e.message); } }); return function() { live = false; }; }, [tab, tbl]);
   const run = function(label, fn) { setBusy(label); setErr(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }).then(function() { setBusy(''); }); };
-  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:780}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['data','Data'],['ask','Q&A']].concat(cmCan('facility_view') ? [['fac','Facility'],['ttb','TTB']] : []).concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
+  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:850}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['wines','Wines'],['data','Data'],['ask','Q&A']].concat(cmCan('facility_view') ? [['fac','Facility'],['ttb','TTB']] : []).concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
   const errBox = err ? cmE('div', {style:{background:C.redDim, border:'1px solid ' + C.red, borderRadius:8, padding:'10px 12px', color:C.red, fontSize:12, marginBottom:12, fontWeight:600}}, err) : null;
   const busyBox = busy ? cmE('div', {style:{fontSize:12, color:C.accentLight, marginBottom:10}}, busy) : null;
 
@@ -4207,6 +4207,7 @@ function CmReportsScreen(props) {
   if (tab === 'admin') return cmE(React.Fragment, null, tabs, cmE(CmAdmin, null));
   if (tab === 'fac') return cmE(React.Fragment, null, tabs, cmE(CmFacility, null));
   if (tab === 'ttb') return cmE(React.Fragment, null, tabs, cmE(CmTtb, null));
+  if (tab === 'wines') return cmE(React.Fragment, null, tabs, cmE(CmWines, null));
   if (tab === 'tanks') return cmE(React.Fragment, null, tabs, cmE(CmTanks, null));
   if (tab === 'data') {
     const all = data || [];
@@ -5721,6 +5722,118 @@ function CmTtb() {
       cmNote('Not in this draft yet: wine produced by fermentation, sweetening and blending lines, removals taxpaid, bottled wine on hand, and Parts II to X. Tax class comes from the wine type on file: port-style wines are placed over 16%, everything else not over 16%. Barrels with no owner written are counted under Tystrya Estate.')));
 }
 
+/* == CELLARMATE MODULE 13: bottled wines with reviews, and the vineyard view == */
+const CM_WORDS = ['va','fruit','fruity','cedar','oak','muted','tannin','mouthfeel','nose','acid','bright','floral','spice','earthy','green','grass','reduction','sulfur','cherry','berry','mineral','thin','round','balanced','hot','sweet','dry','clean','funky','smoke'];
+function cmNums(s) { return (String(s == null ? '' : s).match(/[0-9]+/g) || []).map(Number); }
+function cmLotBlocks(lot) { const s = String(lot || ''); const i = s.indexOf('Blk'); if (i === -1) return []; const j = s.indexOf('(', i); return cmNums(s.slice(i + 3, j === -1 ? s.length : j)); }
+function cmWordCounts(texts) { const c = {}; texts.forEach(function(t) { const seen = {}; String(t || '').toLowerCase().split(/[^a-z]+/).forEach(function(w) { if (CM_WORDS.indexOf(w) !== -1 && !seen[w]) { seen[w] = 1; c[w] = (c[w] || 0) + 1; } }); }); return Object.keys(c).sort(function(a, b) { return c[b] - c[a]; }).slice(0, 6).map(function(w) { return w + ' ' + c[w]; }); }
+function CmWines() {
+  const sD = React.useState(null), D = sD[0], setD = sD[1];
+  const sT = React.useState(0), tick = sT[0], setTick = sT[1];
+  const sV = React.useState('bottled'), view = sV[0], setView = sV[1];
+  const sO = React.useState(null), openId = sO[0], setOpenId = sO[1];
+  const sY = React.useState('all'), yr = sY[0], setYr = sY[1];
+  const sF = React.useState({date:today(), who:CM_ME.full_name || '', source:'Team tasting', score:'', note:''}), F = sF[0], setF = sF[1];
+  const sE = React.useState(''), err = sE[0], setErr = sE[1];
+  const sM = React.useState(''), msg = sM[0], setMsg = sM[1];
+  React.useEffect(function() { let live = true;
+    Promise.all([cmFetch('bottled_skus'), cmFresh('wine_reviews'), cmFetch('vintage_lots'), cmFetch('tasting_notes'), cmFetch('vineyard_blocks'), cmFetch('picks'), cmStatusRows()]).then(function(a) {
+      if (live) setD({skus:a[0], rev:a[1], lots:a[2], notes:a[3], blocks:a[4], picks:a[5], rows:a[6]}); })
+      .catch(function(e) { if (live) { setD({skus:[], rev:[], lots:[], notes:[], blocks:[], picks:[], rows:[]}); setErr(e.message); } });
+    return function() { live = false; }; }, [tick]);
+  if (!D) return cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading...');
+  const inp = Object.assign({}, cmSel, {minWidth:0});
+  const set = function(k, v) { const o = Object.assign({}, F); o[k] = v; setF(o); };
+  const card = {background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'10px 12px', marginBottom:8};
+  const lotsOf = function(s) { const name = String(s.sku || '').toLowerCase(); return D.lots.filter(function(l) { return Number(l.vintage) === Number(s.vintage) && l.lot_name && name.indexOf(String(l.lot_name).toLowerCase()) !== -1; }); };
+  const revOf = function(s) { return D.rev.filter(function(r) { return r.sku_id === s.id; }).sort(function(a, b) { return String(b.reviewed_on) < String(a.reviewed_on) ? -1 : 1; }); };
+  const avg = function(list) { const xs = list.map(function(r) { return Number(r.score); }).filter(function(x) { return !isNaN(x) && x > 0; }); return xs.length ? Math.round(xs.reduce(function(s, x) { return s + x; }, 0) / xs.length * 10) / 10 : null; };
+  const notesOf = function(v, lot) { return D.notes.filter(function(n) { return Number(n.vintage) === Number(v) && String(n.lot_name || '').toLowerCase() === String(lot || '').toLowerCase(); }); };
+  const saveReview = function(s) { setErr(''); setMsg(''); Promise.resolve().then(async function() {
+    const sc = F.score === '' ? null : Number(F.score);
+    if (!F.note.trim() && sc == null) throw new Error('Write a note or a score.');
+    if (sc != null && (isNaN(sc) || sc < 0 || sc > 100)) throw new Error('Score is a number from 0 to 100, or blank.');
+    const res = await supa.schema('cellarmate').from('wine_reviews').insert({organization_id:s.organization_id || await cmOrg(), sku_id:s.id, vintage:s.vintage, wine:s.sku, reviewed_on:F.date || today(), reviewer:F.who.trim() || null, source:F.source, score:sc, note:F.note.trim() || null, entered_by:CM_ME.full_name || null});
+    if (res.error) throw new Error(res.error.message);
+    setMsg('Saved the note for ' + s.sku + '.'); setF(Object.assign({}, F, {score:'', note:''})); setTick(tick + 1);
+  }).catch(function(e) { setErr(e.message); }); };
+  const delReview = function(r) { setErr(''); setMsg(''); Promise.resolve().then(async function() { const res = await supa.schema('cellarmate').from('wine_reviews').delete().eq('id', r.id); if (res.error) throw new Error(res.error.message); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const head = cmE(React.Fragment, null,
+    cmE('div', {style:{marginBottom:10}}, cmSeg([['bottled','Bottled wines'],['vineyard','Vineyard']], view, setView)),
+    err ? cmNote(err, C.red) : null, msg ? cmNote(msg, C.green) : null);
+  if (view === 'bottled') {
+    const years = cmUniq(D.skus.map(function(s) { return String(s.vintage); })).sort().reverse();
+    const list = D.skus.filter(function(s) { return yr === 'all' || String(s.vintage) === yr; }).sort(function(a, b) { return (b.vintage - a.vintage) || (String(a.sku) < String(b.sku) ? -1 : 1); });
+    const exRows = list.map(function(s) { const rv = revOf(s); const ls = lotsOf(s); return {b:s.sku, type:s.type || '', src:s.fruit_source || '', blocks:s.source_blocks || ls.map(function(l) { return l.blocks; }).filter(Boolean).join('; '), cases:s.cases_bottled == null ? '' : s.cases_bottled, hand:(s.on_hand_winery_bottles != null ? s.on_hand_winery_bottles + ' btl' : '') + (s.on_hand_nw_cases != null ? ' + ' + s.on_hand_nw_cases + ' cs' : ''), status:s.status || '', n:rv.length, score:avg(rv) == null ? '' : avg(rv), last:rv[0] ? (rv[0].note || '') : ''}; });
+    const exCols = [['b','Wine'],['type','Type'],['src','Fruit source'],['blocks','Blocks'],['cases','Cases bottled'],['hand','On hand'],['status','Status'],['n','Notes'],['score','Avg score'],['last','Latest note']];
+    return cmE(React.Fragment, null, head,
+      cmNote('Every bottled wine with its source, cases and what people have said about it. Add a tasting note or review to any wine; the Vineyard view rolls them up by block.'),
+      cmE('div', {style:{marginBottom:10}}, cmE('select', {value:yr, onChange:function(e) { setYr(e.target.value); }, style:inp}, [cmE('option', {key:'all', value:'all'}, 'All vintages (' + D.skus.length + ' wines)')].concat(years.map(function(y) { return cmE('option', {key:y, value:y}, y); })))),
+      cmE(CmExport, {title:'Bottled wines', sub:'Reviews and tasting notes', file:'CellarMate_bottled_wines', cols:exCols, groups:[{title:'', rows:exRows}]}),
+      !list.length ? cmNote('No bottled wines on file.') : list.map(function(s) { const rv = revOf(s); const ls = lotsOf(s); const open = openId === s.id; const sc = avg(rv); const blocks = s.source_blocks || ls.map(function(l) { return l.blocks; }).filter(Boolean).join('; ');
+        const cellar = []; ls.forEach(function(l) { notesOf(s.vintage, l.lot_name).forEach(function(n) { cellar.push(n); }); });
+        return cmE('div', {key:s.id, style:Object.assign({}, card, {borderLeft:'3px solid ' + (CM_WINE[cmTextCol(s.type || s.sku)] || CM_WINE.other)[1]})},
+          cmE('div', {onClick:function() { setOpenId(open ? null : s.id); }, style:{cursor:'pointer'}},
+            cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}}, cmE('span', {style:{fontWeight:800, fontSize:14}}, s.sku), cmE('span', {style:{fontSize:12, fontWeight:800, color:C.accentLight, whiteSpace:'nowrap'}}, sc != null ? sc + ' avg' : rv.length ? rv.length + ' note' + (rv.length === 1 ? '' : 's') : 'no notes')),
+            cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, (s.fruit_source || 'Source not written') + (blocks ? CM_MID + 'blocks ' + blocks : '') + (s.cases_bottled != null ? CM_MID + s.cases_bottled + ' cases bottled' : '') + (s.on_hand_winery_bottles != null ? CM_MID + s.on_hand_winery_bottles + ' bottles on hand' : '') + (s.on_hand_nw_cases != null ? ' + ' + s.on_hand_nw_cases + ' cases' : '') + (s.status ? CM_MID + s.status : ''))),
+          !open ? null : cmE('div', {style:{marginTop:10}},
+            s.notes ? cmE('div', {style:{fontSize:11, color:C.textDim, marginBottom:8}}, s.notes) : null,
+            cmE('div', {style:cmLbl}, 'Reviews and tasting notes (' + rv.length + ')'),
+            !rv.length ? cmE('div', {style:{fontSize:12, color:C.textDim, marginBottom:8}}, 'None yet.') : rv.map(function(r) { return cmE('div', {key:r.id, style:{display:'flex', justifyContent:'space-between', gap:8, padding:'6px 0', borderTop:'1px solid ' + C.cardBorder, fontSize:12}},
+              cmE('div', null, cmE('span', {style:{fontWeight:800}}, (r.reviewed_on || '') + (r.score != null ? CM_MID + Number(r.score) : '')), CM_MID + (r.source || '') + (r.reviewer ? CM_MID + r.reviewer : ''), r.note ? cmE('div', {style:{color:C.text, marginTop:2}}, r.note) : null),
+              cmCan('undo') ? cmE('span', {onClick:function() { delReview(r); }, style:{color:C.red, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'}}, 'Remove') : null); }),
+            cellar.length ? cmE('div', {style:Object.assign({}, cmLbl, {marginTop:8})}, 'From the cellar, before bottling (' + cellar.length + ')') : null,
+            cellar.slice(0, 6).map(function(n) { return cmE('div', {key:'n' + n.id, style:{fontSize:12, color:C.textMuted, padding:'4px 0', borderTop:'1px solid ' + C.cardBorder}}, (n.date || '') + CM_MID + (n.barrel_or_lot || '') + ': ' + (n.note || '')); }),
+            !(cmCan('log_work') || cmCan('answer')) ? null : cmE('div', {style:{marginTop:10}},
+              cmE('div', {style:cmLbl}, 'Add a note or review'),
+              cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}},
+                cmE('input', {type:'date', value:F.date, onChange:function(e) { set('date', e.target.value); }, style:inp}),
+                cmE('select', {value:F.source, onChange:function(e) { set('source', e.target.value); }, style:inp}, ['Team tasting','Customer feedback','Critic or publication','Competition','Distributor or buyer'].map(function(x) { return cmE('option', {key:x, value:x}, x); })),
+                cmE('input', {value:F.who, onChange:function(e) { set('who', e.target.value); }, placeholder:'Who said it', style:inp}),
+                cmE('input', {value:F.score, inputMode:'decimal', onChange:function(e) { set('score', e.target.value); }, placeholder:'Score 0 to 100 (optional)', style:inp})),
+              cmE('div', {style:{marginBottom:8}}, cmE('input', {value:F.note, onChange:function(e) { set('note', e.target.value); }, placeholder:'Nose, palate, finish, what stood out', style:inp})),
+              cmE('div', {style:{display:'flex'}}, cmBtn('Save note', function() { saveReview(s); }, true, false)))));
+      }));
+  }
+  const cards = [];
+  const tonsLine = function(picks) { const by = {}; picks.forEach(function(p) { by[p.vintage] = (by[p.vintage] || 0) + Number(p.tons || 0); }); const ys = Object.keys(by).sort().reverse().slice(0, 5); return ys.length ? ys.map(function(y) { return y + ': ' + (Math.round(by[y] * 100) / 100) + ' t'; }).join(CM_MID) : 'no picks on file'; };
+  const cellarLine = function(rs) { if (!rs.length) return 'no 2026 barrels matched'; const ph = rs.map(function(r) { return r.ph; }).filter(function(x) { return x != null; }); const a = ph.length ? (ph.reduce(function(s, x) { return s + x; }, 0) / ph.length).toFixed(2) : 'not read'; const hi = ph.filter(function(x) { return x >= 3.83; }).length; return rs.length + ' barrels' + CM_MID + 'avg pH ' + a + (ph.length ? CM_MID + hi + ' at 3.83 or higher' : '') + CM_MID + rs.filter(function(r) { return /^In MLF/.test(r.mlf); }).length + ' still in MLF'; };
+  const tend = function(lots, skus) { const texts = []; lots.forEach(function(l) { if (l.tasting_note) texts.push(l.tasting_note); notesOf(l.vintage, l.lot_name).forEach(function(n) { texts.push(n.note); }); }); let rv = []; skus.forEach(function(s) { rv = rv.concat(revOf(s)); }); rv.forEach(function(r) { texts.push(r.note); }); return {words:cmWordCounts(texts), n:texts.filter(Boolean).length, score:avg(rv), nrev:rv.length}; };
+  const r26 = D.rows.filter(function(r) { return r.v === 2026; });
+  const vys = cmUniq(D.blocks.map(function(b) { return b.vineyard; }));
+  const exRows = [];
+  vys.forEach(function(vy) {
+    D.blocks.filter(function(b) { return b.vineyard === vy; }).sort(function(a, b) { return Number(a.block) - Number(b.block); }).forEach(function(b) { const bn = Number(b.block);
+      const picks = D.picks.filter(function(p) { return p.vineyard === vy && cmNums(p.blocks).indexOf(bn) !== -1; });
+      const lots = D.lots.filter(function(l) { return l.vineyard === vy && cmNums(l.blocks).indexOf(bn) !== -1; });
+      const skus = D.skus.filter(function(s) { return lotsOf(s).some(function(l) { return lots.indexOf(l) !== -1; }) || cmNums(s.source_blocks).indexOf(bn) !== -1; });
+      const rs = /estate/i.test(vy) ? r26.filter(function(r) { return /^Estate/.test(r.lot) && cmLotBlocks(r.lot).indexOf(bn) !== -1; }) : [];
+      const t = tend(lots, skus);
+      exRows.push({b:vy + ' Blk ' + b.block, clone:b.clone || '', variety:b.variety || '', acres:b.acres == null ? '' : b.acres, tons:tonsLine(picks), cellar:cellarLine(rs), wines:cmUniq(lots.map(function(l) { return l.vintage + ' ' + l.lot_name; })).join(', '), score:t.score == null ? '' : t.score, words:t.words.join(', ')});
+      cards.push(cmE('div', {key:vy + b.block, style:Object.assign({}, card, {borderLeft:'3px solid ' + (CM_WINE[cmTextCol(b.variety || '')] || CM_WINE.other)[1]})},
+        cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}}, cmE('span', {style:{fontWeight:800, fontSize:14}}, vy + ' Blk ' + b.block), cmE('span', {style:{fontSize:12, color:C.textMuted, whiteSpace:'nowrap'}}, (b.variety || '') + (b.clone ? ' ' + b.clone : ''))),
+        cmE('div', {style:{fontSize:11, color:C.textDim, marginTop:2}}, (b.acres != null ? b.acres + ' acres' : '') + (b.vines ? CM_MID + b.vines + ' vines' : '') + (b.rootstock ? CM_MID + b.rootstock : '') + (b.planted ? CM_MID + 'planted ' + b.planted : '')),
+        cmE('div', {style:{fontSize:12, marginTop:6}}, cmE('span', {style:{fontWeight:700, color:C.textMuted}}, 'Yield: '), tonsLine(picks)),
+        cmE('div', {style:{fontSize:12, marginTop:3}}, cmE('span', {style:{fontWeight:700, color:C.textMuted}}, '2026 in the cellar: '), cellarLine(rs)),
+        cmE('div', {style:{fontSize:12, marginTop:3}}, cmE('span', {style:{fontWeight:700, color:C.textMuted}}, 'Wines: '), cmUniq(lots.map(function(l) { return l.vintage + ' ' + l.lot_name; })).join(', ') || 'none linked yet'),
+        cmE('div', {style:{fontSize:12, marginTop:3}}, cmE('span', {style:{fontWeight:700, color:C.textMuted}}, 'What the notes say: '), t.n ? (t.words.length ? t.words.join(', ') : 'no common words yet') + ' (from ' + t.n + ' notes' + (t.score != null ? ', avg score ' + t.score : '') + ')' : 'no notes yet')));
+    });
+  });
+  const other = cmUniq(D.picks.map(function(p) { return p.vineyard; }).concat(D.lots.map(function(l) { return l.vineyard; }))).filter(function(v) { return v && vys.indexOf(v) === -1; }).sort();
+  other.forEach(function(vy) { const picks = D.picks.filter(function(p) { return p.vineyard === vy; }); const lots = D.lots.filter(function(l) { return l.vineyard === vy; }); const key = String(vy).split(' ')[0]; const rs = r26.filter(function(r) { return r.lot.indexOf(key) !== -1; }); const skus = D.skus.filter(function(s) { return lotsOf(s).some(function(l) { return lots.indexOf(l) !== -1; }) || String(s.fruit_source || '').indexOf(key) !== -1; }); const t = tend(lots, skus);
+    exRows.push({b:vy, clone:'', variety:cmUniq(picks.map(function(p) { return p.variety; }).filter(Boolean)).join(', '), acres:'', tons:tonsLine(picks), cellar:cellarLine(rs), wines:cmUniq(lots.map(function(l) { return l.vintage + ' ' + l.lot_name; })).join(', '), score:t.score == null ? '' : t.score, words:t.words.join(', ')});
+    cards.push(cmE('div', {key:'o' + vy, style:card},
+      cmE('div', {style:{fontWeight:800, fontSize:14}}, vy), cmE('div', {style:{fontSize:11, color:C.textDim, marginTop:2}}, 'Purchased or partner fruit: no block records'),
+      cmE('div', {style:{fontSize:12, marginTop:6}}, cmE('span', {style:{fontWeight:700, color:C.textMuted}}, 'Yield: '), tonsLine(picks)),
+      cmE('div', {style:{fontSize:12, marginTop:3}}, cmE('span', {style:{fontWeight:700, color:C.textMuted}}, '2026 in the cellar: '), cellarLine(rs)),
+      cmE('div', {style:{fontSize:12, marginTop:3}}, cmE('span', {style:{fontWeight:700, color:C.textMuted}}, 'What the notes say: '), t.n ? (t.words.join(', ') || 'no common words yet') + ' (from ' + t.n + ' notes)' : 'no notes yet'))); });
+  const exCols = [['b','Vineyard and block'],['variety','Variety'],['clone','Clone'],['acres','Acres'],['tons','Tons by vintage'],['cellar','2026 in the cellar'],['wines','Wines made'],['score','Avg score'],['words','Words in the notes']];
+  return cmE(React.Fragment, null, head,
+    cmNote('Each block with its yield, how its 2026 wine is behaving in the cellar, the wines it went into, and the words that come up most in tasting notes and reviews. The word counts are simple tallies, so they get more useful as notes are added.'),
+    cmE(CmExport, {title:'Vineyard view', sub:'Blocks, yield, cellar and notes', file:'CellarMate_vineyard_view', cols:exCols, groups:[{title:'', rows:exRows}]}),
+    cards.length ? cards : cmNote('No vineyard blocks on file.'));
+}
+
 async function getSupaProfile(userId) {
   const me = await cmLoadAccess();
   if (me.loaded) return me.has_access ? {full_name:me.full_name, role_key:me.role_key, initials:me.initials, color:me.color, org_id:me.org_id} : {_noAccess:true, role_key:'readonly'};
@@ -5901,7 +6014,7 @@ function App() {
   const titleMap={[SCREENS.dash]:"Cellar Overview",[SCREENS.log]:"Quick Log",[SCREENS.lots]:"All Lots",[SCREENS.detail]:currentLot?.name||"Detail",[SCREENS.tools]:"Lab Tools",[SCREENS.alerts]:"Alert Schedule",[SCREENS.map]:"Barrel Map",[SCREENS.transfer]:"Transfer / Rack",[SCREENS.settings]:"Settings",[SCREENS.report]:"Barrel Report",[SCREENS.blocks]:"Vineyard Blocks",[SCREENS.health]:"Cellar Health",[SCREENS.reports]:"Reports"};
 
     return(
-    React.createElement("div", {style: {background:C.bg,minHeight:"100vh",color:C.text,maxWidth:430,margin:"0 auto",position:"relative",paddingBottom:84}}, !activeWinery&&(
+    React.createElement("div", {style: {background:C.bg,minHeight:"100vh",color:C.text,maxWidth:1100,margin:"0 auto",position:"relative",paddingBottom:84}}, !activeWinery&&(
         React.createElement("div", {style: {position:"fixed",inset:0,background:C.bg,zIndex:200,overflowY:"auto"}}, React.createElement("div", {style: {maxWidth:430,margin:"0 auto",padding:"32px 20px 40px"}}, React.createElement("div", {style: {textAlign:"center",marginBottom:32}}, React.createElement("div", {style: {fontSize:52,marginBottom:10}}, "🍷"), React.createElement("div", {style: {fontSize:26,fontWeight:900,color:C.text}}, "CellarMate"), React.createElement("div", {style: {fontSize:13,color:C.textMuted,marginTop:6,letterSpacing:0.5}}, "Wine Collective — Select your winery")), !showAddWinery?(
               React.createElement(React.Fragment, null, wineries.map(w=>(
                   React.createElement("button", {key: w.id, onClick: ()=>{if(w.passcode && w.passcode.length > 0) {setPinEntry({wineryId:w.id, value:""});} else {setActiveWineryId(w.id);setShowAddUser(false);}}, style: {display:"flex",alignItems:"center",gap:16,background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:"16px 18px",marginBottom:12,cursor:"pointer",width:"100%",textAlign:"left"}}, React.createElement("div", {style: {width:52,height:52,borderRadius:14,background:C.accentDim,border:`1px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}, "🏡"), React.createElement("div", {style: {flex:1,minWidth:0}}, React.createElement("div", {style: {fontSize:17,fontWeight:800,color:C.text}}, w.name), React.createElement("div", {style: {fontSize:12,color:C.textMuted,marginTop:2}}, w.region), React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:3}}, w.users.length, "member", w.users.length!==1?"s":"", "·", w.lots.length, "lot", w.lots.length!==1?"s":"", "·", w.lots.reduce((s,l)=>s+l.gallons,0).toLocaleString(), "gal")), React.createElement("div", {style: {color:C.textDim,fontSize:20}}, "›"))
@@ -6068,7 +6181,7 @@ screen===SCREENS.lots&&(React.createElement(React.Fragment, null, React.createEl
                   }
                 }
               }, style: {background:C.bg,border:`1px solid ${C.cardBorder}`,borderRadius:10,padding:"16px",fontSize:20,fontWeight:700,color:C.text,cursor:"pointer"}}, "0"), React.createElement("button", {onClick: ()=>setPinEntry(p=>({...p,value:p.value.slice(0,-1)})), style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:10,padding:"16px",fontSize:18,color:C.red,cursor:"pointer"}}, "⌫")), React.createElement("button", {onClick: ()=>setPinEntry({wineryId:null,value:""}), style: {width:"100%",background:"transparent",border:`1px solid ${C.cardBorder}`,borderRadius:10,padding:12,color:C.textMuted,fontWeight:700,cursor:"pointer",marginTop:4}}, "Cancel")))
-      ), checkModal && React.createElement(CheckModal, {lot: checkModal.lot, alertKey: checkModal.alertKey, onClose: closeCheckModal, lots: lots, setLots: setLots})), React.createElement("div", {style: {position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:C.card,borderTop:`1px solid ${C.cardBorder}`,display:"flex",justifyContent:"space-around",padding:"10px 0 18px",zIndex:10}}, [
+      ), checkModal && React.createElement(CheckModal, {lot: checkModal.lot, alertKey: checkModal.alertKey, onClose: closeCheckModal, lots: lots, setLots: setLots})), React.createElement("div", {style: {position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:1100,background:C.card,borderTop:`1px solid ${C.cardBorder}`,display:"flex",justifyContent:"space-around",padding:"10px 0 18px",zIndex:10}}, [
           {id:SCREENS.dash,  icon:"◈", label:"Cellar"},
           {id:SCREENS.log,   icon:"+", label:"Log"},
           {id:SCREENS.lots,  icon:"≡", label:"Lots"},
