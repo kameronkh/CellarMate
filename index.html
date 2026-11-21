@@ -4020,7 +4020,7 @@ const CM_TABLE_LIST = [
   ['tasting_notes','Tasting notes'],['cellar_trials','Cellar trials'],['fermenters','Fermenters'],['ferment_readings','Ferment readings'],
   ['picks','Picks'],['fruit_ownership','Fruit ownership'],['estate_harvests','Estate harvests'],['vineyard_blocks','Vineyard blocks'],
   ['vineyard_sprays','Vineyard sprays'],['soil_tests','Soil tests'],['tissue_tests','Tissue tests'],['bottled_skus','Bottled SKUs'],
-  ['custom_crush_quotes','Custom crush quotes'],['cellar_locations','Cellar locations'],['data_gaps','Open questions'],['cellar_actions','Work log (SO2, ML, readings)'],['topping_log','Topping log'],['tartaric_additions','Tartaric additions']
+  ['custom_crush_quotes','Custom crush quotes'],['cellar_locations','Cellar locations'],['data_gaps','Open questions'],['cellar_actions','Work log (SO2, ML, readings)'],['topping_log','Topping log'],['tartaric_additions','Tartaric additions'],['work_orders','Work orders'],['volume_moves','Volume ledger']
 ];
 const CM_CACHE = {};
 const CM_HIDE = {id:1, organization_id:1, created_at:1, updated_at:1};
@@ -4195,13 +4195,15 @@ function CmReportsScreen(props) {
   React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function(e) { if (live) { setRows([]); setErr(e.message); } }); return function() { live = false; }; }, [tab]);
   React.useEffect(function() { if (tab !== 'data') return; let live = true; setData(null); cmFetch(tbl).then(function(r) { if (live) setData(r); }).catch(function(e) { if (live) { setData([]); setErr(e.message); } }); return function() { live = false; }; }, [tab, tbl]);
   const run = function(label, fn) { setBusy(label); setErr(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }).then(function() { setBusy(''); }); };
-  const tabs = cmE('div', {style:{marginBottom:12}}, cmSeg([['status','Status'],['focus','Reports'],['log','Log'],['tanks','Tanks'],['data','Data'],['ask','Q&A']], tab, setTab));
+  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:560}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['data','Data'],['ask','Q&A']], tab, setTab)));
   const errBox = err ? cmE('div', {style:{background:C.redDim, border:'1px solid ' + C.red, borderRadius:8, padding:'10px 12px', color:C.red, fontSize:12, marginBottom:12, fontWeight:600}}, err) : null;
   const busyBox = busy ? cmE('div', {style:{fontSize:12, color:C.accentLight, marginBottom:10}}, busy) : null;
 
   if (tab === 'focus') return cmE(React.Fragment, null, tabs, cmE(CmFocusReports, {rows: rows || []}));
   if (tab === 'ask') return cmE(React.Fragment, null, tabs, cmE(CmQuestions, null));
   if (tab === 'log') return cmE(React.Fragment, null, tabs, cmE(CmLogWork, null));
+  if (tab === 'work') return cmE(React.Fragment, null, tabs, cmE(CmWork, null));
+  if (tab === 'vol') return cmE(React.Fragment, null, tabs, cmE(CmVolumes, null));
   if (tab === 'tanks') return cmE(React.Fragment, null, tabs, cmE(CmTanks, null));
   if (tab === 'data') {
     const all = data || [];
@@ -4845,7 +4847,7 @@ function CmImport() {
 }
 const CM_DB = {map:null, rows:[]};
 async function cmLoadOverrides2() {
-  await cmLoadOverrides();
+  await cmLoadOverrides(); await cmLoadVol();
   try { const rows = await cmStatusRows(); const m = {}; rows.forEach(function(r) { m[r.b] = r; }); CM_DB.map = m; CM_DB.rows = rows; } catch (e) { CM_DB.map = null; CM_DB.rows = []; }
   CM_DECO_VER++;
 }
@@ -4917,7 +4919,7 @@ function CmHealth(props) {
 /* == CELLARMATE MODULE 6: tanks on the overview, SO2 appetite and alerts, questions == */
 let CM_FOCUS = {};
 const CM_ROSE = 'Ros' + String.fromCharCode(233);
-function cmVesselGal(x) {
+function cmVesselGal0(x) {
   const t = String(x.volume_text || '').toLowerCase();
   let m = t.match(/([0-9.]+) *gal/); if (m) return Number(m[1]);
   m = t.match(/([0-9.]+) *l/); if (m) return Number(m[1]) / 3.785;
@@ -4934,7 +4936,7 @@ function cmVesselVar(x) {
   if (s.indexOf('pinot') !== -1 || s.indexOf('pn ') !== -1 || s.indexOf('sawyer') !== -1 || s.indexOf('stiling') !== -1 || s.indexOf('topping') !== -1) return 'Pinot Noir';
   return 'Unknown';
 }
-function cmVesselLive(x) { return !/^empty|^[?]/i.test(x.status || '') && x.vessel_type !== 'Barrel'; }
+function cmVesselLive(x) { return (CM_VOL.net[x.vessel] > 0 || !/^empty|^[?]/i.test(x.status || '')) && x.vessel_type !== 'Barrel'; }
 function cmDays(a, b) { return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000); }
 function cmAppetite(rows, so2log, acts) {
   const out = {}; const byV = {};
@@ -5038,7 +5040,7 @@ function CmDash2(props) {
   const vOurs = vAll.filter(function(x) { return cmOwnerClass(x.owner) !== 'other' && (variety === 'all' || cmVesselVar(x) === variety); });
   const vOther = vAll.filter(function(x) { return cmOwnerClass(x.owner) === 'other'; });
   let tankGal = 0, tankUnknown = 0; vOurs.forEach(function(x) { const g = cmVesselGal(x); if (g == null) tankUnknown++; else tankGal += g; });
-  const barrelGal = sel.reduce(function(s, r) { return s + r.liters / 3.785; }, 0);
+  const barrelGal = sel.reduce(function(s, r) { return s + Math.max(0, r.liters / 3.785 + (CM_VOL.net[r.b] || 0)); }, 0);
   const assumed = sel.filter(function(r) { return !r.litKnown; }).length;
   const need = sel.filter(function(r) { return r.cat === 'add' || r.cat === 'test' || r.cat === 'decide'; });
   const alertRows = sel.filter(function(r) { return D.ap[r.b] && D.ap[r.b].alert; });
@@ -5130,6 +5132,233 @@ function cmWatch(lot, last, settings) {
   }
   if (r.malic == null && r.rise != null && Number(r.rise) >= 0.15) out.push({level:'warn', icon:'', title:'pH has risen ' + Number(r.rise).toFixed(2) + ' since the first reading on file', color:C.yellow, bg:C.bg, msg:'A rise this size usually goes with MLF finishing. Confirm with a malic test before sulfuring.'});
   return out;
+}
+
+/* == CELLARMATE MODULE 8: work orders and the volume ledger == */
+const CM_VOL = {net:{}, moves:[]};
+async function cmFresh(table) { delete CM_CACHE[table]; return cmFetch(table); }
+async function cmLoadVol() {
+  try {
+    const mv = await cmFresh('volume_moves'); const n = {};
+    mv.forEach(function(m) { const g = Number(m.gallons) || 0; if (m.from_vessel) n[m.from_vessel] = (n[m.from_vessel] || 0) - g; if (m.to_vessel) n[m.to_vessel] = (n[m.to_vessel] || 0) + g; });
+    CM_VOL.net = n; CM_VOL.moves = mv;
+  } catch (e) { CM_VOL.net = {}; CM_VOL.moves = []; }
+  return CM_VOL;
+}
+function cmVesselGal(x) { const g = cmVesselGal0(x); const n = CM_VOL.net[x.vessel]; if (g == null) return n ? Math.max(0, n) : null; return Math.max(0, g + (n || 0)); }
+const CM_WO_TYPES = [['so2','Add SO2'],['ml','ML inoculation'],['top','Topping'],['free_so2','Test free SO2'],['malic','Test malic'],['ph','Test pH'],['tart','Tartaric addition'],['rack','Rack or transfer'],['clean','Cleaning'],['other','Other']];
+function cmWoLabel(t) { const f = CM_WO_TYPES.filter(function(x) { return x[0] === t; })[0]; return f ? f[1] : 'Task'; }
+function CmWork() {
+  const sO = React.useState(null), orders = sO[0], setOrders = sO[1];
+  const sR = React.useState([]), rows = sR[0], setRows = sR[1];
+  const sT = React.useState(0), tick = sT[0], setTick = sT[1];
+  const sView = React.useState('Open'), view = sView[0], setView = sView[1];
+  const sWho = React.useState('all'), who = sWho[0], setWho = sWho[1];
+  const sNew = React.useState(false), isNew = sNew[0], setNew = sNew[1];
+  const sOpen = React.useState(null), openId = sOpen[0], setOpenId = sOpen[1];
+  const sF = React.useState({type:'so2', title:'', v:'2026', who:'', due:today(), notes:'', pick:'all', q:''}), F = sF[0], setF = sF[1];
+  const sS = React.useState({}), sel = sS[0], setSel = sS[1];
+  const sE = React.useState(''), err = sE[0], setErr = sE[1];
+  const sM = React.useState(''), msg = sM[0], setMsg = sM[1];
+  React.useEffect(function() { let live = true; Promise.all([cmFresh('work_orders'), cmStatusRows()]).then(function(a) { if (live) { setOrders(a[0]); setRows(a[1]); } }).catch(function(e) { if (live) { setOrders([]); setErr(e.message); } }); return function() { live = false; }; }, [tick]);
+  if (!orders) return cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading...');
+  const byCode = {}; rows.forEach(function(r) { byCode[r.b] = r; });
+  const set = function(k, val) { const o = Object.assign({}, F); o[k] = val; setF(o); };
+  const act = function(fn) { setErr(''); setMsg(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }); };
+  const db = function() { return supa.schema('cellarmate'); };
+  const people = cmUniq(['Kameron'].concat(orders.map(function(o) { return o.assigned_to; }).filter(Boolean)));
+  const inp = Object.assign({}, cmSel, {minWidth:0});
+  const vn = Number(F.v);
+  const base = rows.filter(function(r) { return r.v === vn; });
+  const groups = cmUniq(base.map(function(r) { return r.group; })).sort();
+  const shown = base.filter(function(r) {
+    if (F.pick !== 'all' && r.group !== F.pick) return false;
+    if (F.q && (r.b + ' ' + r.lot + ' ' + r.var + ' ' + r.action).toLowerCase().indexOf(F.q.toLowerCase()) === -1) return false;
+    return true;
+  });
+  const codes = Object.keys(sel).sort(function(a, b) { return cmNat(a) - cmNat(b); });
+  const create = function() { act(async function() {
+    const needs = ['clean','other','rack'].indexOf(F.type) === -1;
+    if (needs && !codes.length) throw new Error('Tick at least one barrel for this task.');
+    const org = await cmOrg(); const u = await supa.auth.getUser();
+    const title = F.title.trim() || (cmWoLabel(F.type) + (codes.length ? ': ' + codes.length + ' barrel' + (codes.length === 1 ? '' : 's') + ' (' + F.v + ')' : ''));
+    const res = await db().from('work_orders').insert({organization_id:org, title:title, task_type:F.type, vintage:codes.length ? vn : null, barrels:codes, done_barrels:[], assigned_to:F.who.trim() || null, due_on:F.due || null, notes:F.notes.trim() || null, status:'Open', created_by:(u.data && u.data.user && u.data.user.email) || null});
+    if (res.error) throw new Error(res.error.message);
+    setMsg('Work order created: ' + title); setSel({}); setNew(false); setF(Object.assign({}, F, {title:'', notes:''})); setView('Open'); setTick(tick + 1);
+  }); };
+  const saveTicks = function(o, d) { act(async function() {
+    const res = await db().from('work_orders').update({done_barrels:d}).eq('id', o.id);
+    if (res.error) throw new Error(res.error.message);
+    setOrders(orders.map(function(x) { return x.id === o.id ? Object.assign({}, x, {done_barrels:d}) : x; }));
+  }); };
+  const tickBarrel = function(o, code) { const d = (o.done_barrels || []).slice(); const i = d.indexOf(code); if (i === -1) d.push(code); else d.splice(i, 1); saveTicks(o, d); };
+  const finish = function(o) { act(async function() {
+    const all = o.barrels || []; const done = o.done_barrels || [];
+    if (all.length && !done.length) throw new Error('Tick the barrels that were done, or use Tick all, before finishing.');
+    const org = await cmOrg(); const u = await supa.auth.getUser(); const day = today();
+    const recs = [];
+    if (o.task_type === 'top') {
+      const r1 = await db().from('topping_log').insert({organization_id:org, vintage:o.vintage, scope:done.length + ' barrels (work order)', topped_on:day, note:o.title});
+      if (r1.error) throw new Error(r1.error.message);
+    } else done.forEach(function(code) {
+      const r = byCode[code]; const raw = r ? r.raw : code;
+      const rec = {organization_id:org, vintage:o.vintage, barrel:raw, action_type:'note', done_on:day, grams:null, value:null, note:null};
+      if (o.task_type === 'so2') { rec.action_type = 'so2'; rec.grams = r ? r.g : null; }
+      else if (o.task_type === 'ml') rec.action_type = 'ml';
+      else rec.note = 'Work order done: ' + o.title;
+      recs.push(rec);
+    });
+    if (recs.length) { const r2 = await db().from('cellar_actions').insert(recs); if (r2.error) throw new Error(r2.error.message); }
+    const r3 = await db().from('work_orders').update({status:'Done', done_on:day, done_by:o.assigned_to || (u.data && u.data.user && u.data.user.email) || null}).eq('id', o.id);
+    if (r3.error) throw new Error(r3.error.message);
+    delete CM_CACHE.cellar_actions; delete CM_CACHE.topping_log;
+    setMsg('Finished: ' + o.title + (all.length ? ' (' + done.length + ' of ' + all.length + ' barrels logged)' : '')); setOpenId(null); setTick(tick + 1);
+  }); };
+  const setStatus = function(o, s) { act(async function() { const res = await db().from('work_orders').update({status:s, done_on:null, done_by:null}).eq('id', o.id); if (res.error) throw new Error(res.error.message); setTick(tick + 1); }); };
+  const list = orders.filter(function(o) { return (view === 'Open' ? o.status === 'Open' : o.status !== 'Open') && (who === 'all' || (o.assigned_to || 'Unassigned') === who); })
+    .sort(function(a, b) { if (view === 'Open') return String(a.due_on || '9999') < String(b.due_on || '9999') ? -1 : 1; return b.id - a.id; });
+  const nOpen = orders.filter(function(o) { return o.status === 'Open'; }).length;
+  const late = orders.filter(function(o) { return o.status === 'Open' && o.due_on && o.due_on < today(); }).length;
+  const exGroups = list.map(function(o) {
+    const bs = o.barrels || [];
+    const rs = bs.length ? bs.map(function(code) { const r = byCode[code] || {}; return {b:code, col:r.col, wine:r.var || '', lot:r.lot || '', task:cmWoLabel(o.task_type), g:o.task_type === 'so2' && r.g != null ? r.g : '', tab:o.task_type === 'so2' ? (r.tab || '') : '', who:o.assigned_to || '', due:o.due_on || '', done:(o.done_barrels || []).indexOf(code) !== -1 ? 'yes' : ''}; }) : [{b:'(no barrels)', wine:'', lot:'', task:cmWoLabel(o.task_type), g:'', tab:'', who:o.assigned_to || '', due:o.due_on || '', done:o.status === 'Done' ? 'yes' : ''}];
+    return {title:o.title + (o.notes ? ' | ' + o.notes : ''), rows:rs};
+  });
+  const exCols = [['b','Barrel'],['wine','Wine'],['lot','Lot'],['task','Task'],['g','Grams'],['tab','Tablets'],['who','Assigned'],['due','Due'],['done','Done']];
+  const form = !isNew ? null : cmE('div', {style:{background:C.card, border:'1px solid ' + C.accent, borderRadius:12, padding:12, marginBottom:12}},
+    cmE('div', {style:{fontSize:14, fontWeight:800, marginBottom:8}}, 'New work order'),
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}},
+      cmE('div', null, cmE('label', {style:cmLbl}, 'Task'), cmE('select', {value:F.type, onChange:function(e) { set('type', e.target.value); }, style:inp}, CM_WO_TYPES.map(function(t) { return cmE('option', {key:t[0], value:t[0]}, t[1]); }))),
+      cmE('div', null, cmE('label', {style:cmLbl}, 'Due'), cmE('input', {type:'date', value:F.due, onChange:function(e) { set('due', e.target.value); }, style:inp})),
+      cmE('div', null, cmE('label', {style:cmLbl}, 'Assign to'), cmE('input', {value:F.who, list:'cm-people', onChange:function(e) { set('who', e.target.value); }, placeholder:'Name', style:inp}), cmE('datalist', {id:'cm-people'}, people.map(function(p) { return cmE('option', {key:p, value:p}); }))),
+      cmE('div', null, cmE('label', {style:cmLbl}, 'Title (optional)'), cmE('input', {value:F.title, onChange:function(e) { set('title', e.target.value); }, placeholder:cmWoLabel(F.type), style:inp}))),
+    cmE('div', {style:{marginBottom:8}}, cmE('label', {style:cmLbl}, 'Instructions'), cmE('input', {value:F.notes, onChange:function(e) { set('notes', e.target.value); }, placeholder:'Anything the crew should know', style:inp})),
+    cmE('div', {style:{marginBottom:8}}, cmSeg([['2026','2026'],['2025','2025']], F.v, function(x) { setSel({}); setF(Object.assign({}, F, {v:x, pick:'all'})); })),
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}},
+      cmE('div', null, cmE('label', {style:cmLbl}, 'Show barrels from'), cmE('select', {value:F.pick, onChange:function(e) { set('pick', e.target.value); }, style:inp}, [cmE('option', {key:'all', value:'all'}, 'All ' + F.v + ' barrels (' + base.length + ')')].concat(groups.map(function(g) { return cmE('option', {key:g, value:g}, g + ' (' + base.filter(function(r) { return r.group === g; }).length + ')'); })))),
+      cmE('div', null, cmE('label', {style:cmLbl}, 'Search'), cmE('input', {value:F.q, onChange:function(e) { set('q', e.target.value); }, placeholder:'barrel or lot', style:inp}))),
+    cmE('div', {style:{display:'flex', gap:8, marginBottom:8}},
+      cmBtn('Tick all shown (' + shown.length + ')', function() { const o = Object.assign({}, sel); shown.forEach(function(r) { o[r.b] = true; }); setSel(o); }, false, !shown.length),
+      cmBtn('Clear (' + codes.length + ')', function() { setSel({}); }, false, !codes.length)),
+    cmE('div', {style:{maxHeight:260, overflowY:'auto', border:'1px solid ' + C.cardBorder, borderRadius:10, marginBottom:8}},
+      shown.map(function(r) { const on = !!sel[r.b];
+        return cmE('div', {key:r.b, onClick:function() { const o = Object.assign({}, sel); if (o[r.b]) delete o[r.b]; else o[r.b] = true; setSel(o); }, style:{display:'flex', gap:10, alignItems:'center', padding:'7px 10px', borderBottom:'1px solid ' + C.cardBorder, background:on ? C.accentDim : 'transparent', cursor:'pointer'}},
+          cmE('span', {style:{width:18, height:18, borderRadius:4, border:'2px solid ' + (on ? C.accent : C.textDim), background:on ? C.accent : 'transparent', flexShrink:0, color:'#fff', fontSize:12, lineHeight:'15px', textAlign:'center', fontWeight:800}}, on ? 'x' : ''),
+          cmE('div', {style:{minWidth:0, flex:1, fontSize:12}}, cmDot(r.col, 9), cmE('span', {style:{fontWeight:800}}, r.b), cmE('span', {style:{color:C.textMuted, marginLeft:6}}, r.var + (r.g != null ? CM_MID + r.g + ' g' : '') + CM_MID + r.action)));
+      })),
+    cmE('div', {style:{display:'flex', gap:8}}, cmBtn('Create work order' + (codes.length ? ' for ' + codes.length + ' barrel' + (codes.length === 1 ? '' : 's') : ''), create, true, false), cmBtn('Cancel', function() { setNew(false); }, false, false)));
+  return cmE(React.Fragment, null,
+    cmNote('Assign a job, tick barrels off as you go, then finish it. Finishing writes to the work log: SO2 and ML orders update each barrel, topping orders add a topping round.'),
+    cmE('div', {style:{display:'flex', gap:8, marginBottom:10}}, cmBtn(isNew ? 'Close form' : '+ New work order', function() { setNew(!isNew); }, true, false)),
+    form,
+    err ? cmNote(err, C.red) : null,
+    msg ? cmNote(msg, C.green) : null,
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10}},
+      cmSeg([['Open','Open (' + nOpen + ')'],['Done','Finished']], view, setView),
+      cmE('select', {value:who, onChange:function(e) { setWho(e.target.value); }, style:inp}, [cmE('option', {key:'all', value:'all'}, 'Everyone')].concat(cmUniq(orders.map(function(o) { return o.assigned_to || 'Unassigned'; })).map(function(p) { return cmE('option', {key:p, value:p}, p); })))),
+    late ? cmNote(late + ' open work order' + (late === 1 ? ' is' : 's are') + ' past due.', C.red) : null,
+    list.length ? cmE(CmExport, {title:'Work orders', sub:view + ' work orders', file:'CellarMate_work_orders', cols:exCols, groups:exGroups}) : null,
+    !list.length ? cmNote(view === 'Open' ? 'No open work orders.' : 'Nothing finished yet.') : list.map(function(o) {
+      const bs = o.barrels || []; const dn = o.done_barrels || []; const open = openId === o.id; const isLate = o.status === 'Open' && o.due_on && o.due_on < today();
+      let grams = 0; if (o.task_type === 'so2') bs.forEach(function(code) { const r = byCode[code]; if (r && r.g) grams += r.g; });
+      return cmE('div', {key:o.id, style:{background:C.card, border:'1px solid ' + C.cardBorder, borderLeft:'3px solid ' + (o.status === 'Done' ? C.green : isLate ? C.red : C.accent), borderRadius:10, padding:'10px 12px', marginBottom:8}},
+        cmE('div', {onClick:function() { setOpenId(open ? null : o.id); }, style:{cursor:'pointer'}},
+          cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}}, cmE('span', {style:{fontWeight:800, fontSize:14}}, o.title), cmE('span', {style:{fontSize:12, fontWeight:800, color:C.accentLight, whiteSpace:'nowrap'}}, bs.length ? dn.length + ' / ' + bs.length : o.status)),
+          cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, cmWoLabel(o.task_type) + CM_MID + (o.assigned_to || 'Unassigned') + (o.due_on ? CM_MID + 'due ' + o.due_on : '') + (grams ? CM_MID + grams + ' g SO2' : '') + (o.status !== 'Open' ? CM_MID + o.status + (o.done_on ? ' ' + o.done_on : '') + (o.done_by ? ' by ' + o.done_by : '') : '')),
+          isLate ? cmE('div', {style:{fontSize:11, color:C.red, fontWeight:700, marginTop:2}}, 'Past due') : null,
+          o.notes ? cmE('div', {style:{fontSize:12, color:C.text, marginTop:4}}, o.notes) : null),
+        !open ? null : cmE('div', {style:{marginTop:8}},
+          bs.map(function(code) { const r = byCode[code] || {}; const on = dn.indexOf(code) !== -1;
+            return cmE('div', {key:code, onClick:o.status === 'Open' ? function() { tickBarrel(o, code); } : undefined, style:{display:'flex', gap:10, alignItems:'center', padding:'8px 4px', borderTop:'1px solid ' + C.cardBorder, cursor:o.status === 'Open' ? 'pointer' : 'default'}},
+              cmE('span', {style:{width:22, height:22, borderRadius:5, border:'2px solid ' + (on ? C.green : C.textDim), background:on ? C.green : 'transparent', flexShrink:0, color:'#fff', fontSize:13, lineHeight:'19px', textAlign:'center', fontWeight:800}}, on ? 'x' : ''),
+              cmE('div', {style:{minWidth:0, flex:1, fontSize:12}}, cmDot(r.col, 9), cmE('span', {style:{fontWeight:800, fontSize:13}}, code), cmE('span', {style:{color:C.textMuted, marginLeft:6}}, (r.var || '') + (o.task_type === 'so2' && r.g != null ? CM_MID + r.g + ' g' + (r.tab ? ' (' + r.tab + ')' : '') : ''))));
+          }),
+          o.status === 'Open' ? cmE('div', {style:{display:'flex', gap:8, marginTop:8}},
+            bs.length ? cmBtn('Tick all', function() { saveTicks(o, bs.slice()); }, false, dn.length === bs.length) : null,
+            cmBtn('Finish', function() { finish(o); }, true, false),
+            cmBtn('Cancel order', function() { setStatus(o, 'Cancelled'); }, false, false)) : cmE('div', {style:{display:'flex', gap:8, marginTop:8}}, o.status === 'Cancelled' ? cmBtn('Reopen', function() { setStatus(o, 'Open'); }, false, false) : null)));
+    }));
+}
+const CM_MOVE_TYPES = [['rack','Rack or transfer'],['top','Topping'],['blend','Blend'],['loss','Loss (lees, spill, evaporation)'],['bottle','Bottled'],['add','Received or added'],['fix','Correction']];
+function cmMoveLabel(t) { const f = CM_MOVE_TYPES.filter(function(x) { return x[0] === t; })[0]; return f ? f[1] : 'Move'; }
+function CmVolumes() {
+  const sD = React.useState(null), D = sD[0], setD = sD[1];
+  const sT = React.useState(0), tick = sT[0], setTick = sT[1];
+  const sF = React.useState({type:'rack', date:today(), from:'', to:'', gal:'', note:''}), F = sF[0], setF = sF[1];
+  const sE = React.useState(''), err = sE[0], setErr = sE[1];
+  const sM = React.useState(''), msg = sM[0], setMsg = sM[1];
+  React.useEffect(function() { let live = true; Promise.all([cmLoadVol(), cmFetch('vessels'), cmStatusRows(), cmFetch('barrel_status_2026')]).then(function(a) {
+    if (!live) return; const lit = {}; a[3].forEach(function(r) { if (r.liters != null) lit[r.barrel] = Number(r.liters); });
+    setD({moves:a[0].moves, net:a[0].net, ves:a[1], rows:a[2], lit:lit});
+  }).catch(function(e) { if (live) { setD({moves:[], net:{}, ves:[], rows:[], lit:{}}); setErr(e.message); } }); return function() { live = false; }; }, [tick]);
+  if (!D) return cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading...');
+  const set = function(k, val) { const o = Object.assign({}, F); o[k] = val; setF(o); };
+  const inp = Object.assign({}, cmSel, {minWidth:0});
+  const vByName = {}; D.ves.forEach(function(x) { if (x.vessel_type !== 'Barrel') vByName[x.vessel] = x; });
+  const bByCode = {}; D.rows.forEach(function(r) { bByCode[r.b] = r; });
+  const names = Object.keys(vByName).concat(Object.keys(bByCode));
+  const startOf = function(n) {
+    if (vByName[n]) return cmVesselGal0(vByName[n]);
+    const r = bByCode[n]; if (!r) return null;
+    return (r.v === 2026 && D.lit[r.raw] != null ? D.lit[r.raw] : 225) / 3.785;
+  };
+  const nowOf = function(n) { const s = startOf(n); const d = D.net[n] || 0; return s == null ? (d ? d : null) : s + d; };
+  const f1 = function(x) { return x == null ? 'not on file' : (Math.round(x * 10) / 10).toFixed(1); };
+  const hasFrom = F.type !== 'add'; const hasTo = ['rack','top','blend','add','fix'].indexOf(F.type) !== -1;
+  const save = function() { setErr(''); setMsg(''); Promise.resolve().then(async function() {
+    const from = hasFrom ? F.from.trim() : ''; const to = hasTo ? F.to.trim() : ''; const g = Number(F.gal);
+    if (!F.date) throw new Error('Pick a date.');
+    if (F.gal === '' || isNaN(g) || g <= 0) throw new Error('Enter the gallons moved as a number above zero.');
+    if (['rack','top','blend'].indexOf(F.type) !== -1 && (!from || !to)) throw new Error('Pick both the vessel the wine came from and the one it went to.');
+    if (['loss','bottle'].indexOf(F.type) !== -1 && !from) throw new Error('Pick the vessel the wine came out of.');
+    if (F.type === 'add' && !to) throw new Error('Pick the vessel the wine went into.');
+    if (F.type === 'fix' && ((from && to) || (!from && !to))) throw new Error('For a correction fill in only one side: From to take gallons off, or To to add gallons.');
+    if (from && to && from === to) throw new Error('From and To are the same vessel.');
+    if (from && names.indexOf(from) === -1) throw new Error(from + ' is not a vessel or barrel on file. Pick one from the list.');
+    if (to && names.indexOf(to) === -1) throw new Error(to + ' is not a vessel or barrel on file. Pick one from the list.');
+    const org = await cmOrg(); const u = await supa.auth.getUser();
+    const have = from ? nowOf(from) : null;
+    const res = await supa.schema('cellarmate').from('volume_moves').insert({organization_id:org, moved_on:F.date, move_type:F.type, from_vessel:from || null, to_vessel:to || null, gallons:g, note:F.note.trim() || null, entered_by:(u.data && u.data.user && u.data.user.email) || null});
+    if (res.error) throw new Error(res.error.message);
+    setMsg('Saved: ' + cmMoveLabel(F.type) + ', ' + g + ' gal' + (from ? ' from ' + from : '') + (to ? ' to ' + to : '') + '.' + (have != null && g > have + 0.05 ? ' Check this one: only about ' + f1(have) + ' gal was on file in ' + from + '.' : ''));
+    setF(Object.assign({}, F, {gal:'', note:''})); setTick(tick + 1);
+  }).catch(function(e) { setErr(e.message); }); };
+  const undo = function(id) { setErr(''); setMsg(''); Promise.resolve().then(async function() { const res = await supa.schema('cellarmate').from('volume_moves').delete().eq('id', id); if (res.error) throw new Error(res.error.message); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const mk = function(n, what) { const s = startOf(n); const d = D.net[n] || 0; const now = nowOf(n); return {b:n, what:what, start:f1(s), moved:d ? (d > 0 ? '+' : '') + f1(d) : '', now:f1(now), flag:now != null && now < -0.05 ? 'Below zero: check the moves' : ''}; };
+  const vRows = Object.keys(vByName).map(function(n) { const x = vByName[n]; return mk(n, (x.contents || '') + (x.owner ? ' (' + x.owner + ')' : '')); });
+  const bRows = Object.keys(bByCode).filter(function(n) { return D.net[n]; }).sort(function(a, b) { return cmNat(a) - cmNat(b); }).map(function(n) { const r = bByCode[n]; return mk(n, r.var + (r.lot ? ', ' + r.lot : '')); });
+  const sum = function(t) { return D.moves.filter(function(m) { return m.move_type === t; }).reduce(function(s, m) { return s + Number(m.gallons); }, 0); };
+  const cols = [['b','Vessel'],['what','Wine'],['start','Start gal'],['moved','Moved'],['now','Now gal'],['flag','Check']];
+  const groups = [{title:'Tanks, kegs and topping vessels', rows:vRows}].concat(bRows.length ? [{title:'Barrels with moves', rows:bRows}] : []);
+  const led = D.moves.slice().sort(function(a, b) { return String(b.moved_on) + b.id > String(a.moved_on) + a.id ? 1 : -1; });
+  const ledRows = led.map(function(m) { return {b:m.moved_on, type:cmMoveLabel(m.move_type), from:m.from_vessel || '', to:m.to_vessel || '', gal:Number(m.gallons), note:m.note || '', by:m.entered_by || ''}; });
+  return cmE(React.Fragment, null,
+    cmNote('Every rack, top, blend, loss and bottling goes here as gallons out of one vessel and into another. Starting volumes are the amounts on file as of Nov 20, 2026 (barrels at their listed size); each move after that adjusts them, and the overview gallons follow.'),
+    cmE('div', {style:{background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:12, padding:12, marginBottom:12}},
+      cmE('div', {style:{fontSize:14, fontWeight:800, marginBottom:8}}, 'Record a move'),
+      cmE('datalist', {id:'cm-vnames'}, names.map(function(n) { return cmE('option', {key:n, value:n}); })),
+      cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}},
+        cmE('div', null, cmE('label', {style:cmLbl}, 'What happened'), cmE('select', {value:F.type, onChange:function(e) { set('type', e.target.value); }, style:inp}, CM_MOVE_TYPES.map(function(t) { return cmE('option', {key:t[0], value:t[0]}, t[1]); }))),
+        cmE('div', null, cmE('label', {style:cmLbl}, 'Date'), cmE('input', {type:'date', value:F.date, onChange:function(e) { set('date', e.target.value); }, style:inp})),
+        hasFrom ? cmE('div', null, cmE('label', {style:cmLbl}, 'From' + (F.from && nowOf(F.from) != null ? ' (' + f1(nowOf(F.from)) + ' gal)' : '')), cmE('input', {value:F.from, list:'cm-vnames', onChange:function(e) { set('from', e.target.value); }, placeholder:'Tank or barrel, for example 26-109', style:inp})) : null,
+        hasTo ? cmE('div', null, cmE('label', {style:cmLbl}, 'To' + (F.to && nowOf(F.to) != null ? ' (' + f1(nowOf(F.to)) + ' gal)' : '')), cmE('input', {value:F.to, list:'cm-vnames', onChange:function(e) { set('to', e.target.value); }, placeholder:'Tank or barrel', style:inp})) : null,
+        cmE('div', null, cmE('label', {style:cmLbl}, 'Gallons'), cmE('input', {value:F.gal, inputMode:'decimal', onChange:function(e) { set('gal', e.target.value); }, placeholder:'for example 2.5', style:inp})),
+        cmE('div', null, cmE('label', {style:cmLbl}, 'Note'), cmE('input', {value:F.note, onChange:function(e) { set('note', e.target.value); }, placeholder:'optional', style:inp}))),
+      cmE('div', {style:{display:'flex'}}, cmBtn('Save move', save, true, false))),
+    err ? cmNote(err, C.red) : null,
+    msg ? cmNote(msg, C.green) : null,
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:12}}, [['Moves on file', D.moves.length], ['Losses, gal', f1(sum('loss'))], ['Bottled, gal', f1(sum('bottle'))]].map(function(t) {
+      return cmE('div', {key:t[0], style:{background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'8px 6px', textAlign:'center'}}, cmE('div', {style:{fontSize:18, fontWeight:800}}, t[1]), cmE('div', {style:{fontSize:10, color:C.textDim, fontWeight:700}}, t[0])); })),
+    cmE('div', {style:cmLbl}, 'Volumes now'),
+    cmE(CmExport, {title:'Volumes', sub:'Gallons by vessel', file:'CellarMate_volumes', cols:cols, groups:groups}),
+    cmTable(cols, groups),
+    cmE('div', {style:cmLbl}, 'Ledger (' + led.length + ' moves)'),
+    led.length ? cmE(CmExport, {title:'Volume ledger', sub:'Every move on file', file:'CellarMate_volume_ledger', cols:[['b','Date'],['type','Move'],['from','From'],['to','To'],['gal','Gallons'],['note','Note'],['by','Entered by']], groups:[{title:'', rows:ledRows}]}) : null,
+    !led.length ? cmNote('No moves recorded yet.') : led.slice(0, 60).map(function(m) {
+      return cmE('div', {key:m.id, style:{display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'8px 12px', marginBottom:6, fontSize:12}},
+        cmE('div', null, cmE('span', {style:{fontWeight:800}}, Number(m.gallons) + ' gal'), CM_MID + cmMoveLabel(m.move_type) + CM_MID + (m.from_vessel || '') + (m.from_vessel && m.to_vessel ? ' to ' : '') + (m.to_vessel || '') + CM_MID + m.moved_on + (m.note ? CM_MID + m.note : '')),
+        cmE('span', {onClick:function() { undo(m.id); }, style:{color:C.red, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'}}, 'Undo'));
+    }));
 }
 
 async function getSupaProfile(userId) {
