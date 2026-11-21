@@ -4871,7 +4871,7 @@ function cmDecorate2(lots) {
     let m = CM_DBDECO.get(l);
     if (!m || m.ver !== CM_DECO_VER) {
       const f = cmDbFields(r); const logs = l.logs || []; const lastLog = logs.length ? logs[logs.length - 1] : null;
-      const lot = Object.assign({}, l, {varietal:r.var !== 'Unknown' ? r.var : l.varietal, mlfComplete:f.mlfComplete, alert:f.alert, location:(r.v === 2025 && r.who) ? r.who : l.location, status:(l.status === 'active' ? 'aging' : l.status), logs:(!lastLog || !lastLog.date || lastLog.date < '2026-11-19') ? logs.concat([f.log]) : logs});
+      const lot = Object.assign({}, l, {vineyard:(r.v === 2026 && r.lot) ? r.lot : l.vineyard, varietal:r.var !== 'Unknown' ? r.var : l.varietal, mlfComplete:f.mlfComplete, alert:f.alert, location:(r.v === 2025 && r.who) ? r.who : l.location, status:(l.status === 'active' ? 'aging' : l.status), logs:(!lastLog || !lastLog.date || lastLog.date < '2026-11-19') ? logs.concat([f.log]) : logs});
       m = {ver:CM_DECO_VER, lot:lot}; CM_DBDECO.set(l, m);
     }
     const n = (l.logs || []).length;
