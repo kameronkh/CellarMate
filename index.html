@@ -4862,11 +4862,11 @@ function cmDecorate2(lots) {
   const seen = {}; const out = [];
   deco.forEach(function(l) {
     const r = CM_DB.map[l.name];
-    if (!r || Number(l.vintage) !== r.v) { out.push(l); return; }
+    if (!r || Number(l.vintage) !== r.v) { out.push(l.status === 'active' && l.type === 'barrel' ? Object.assign({}, l, {status:'aging'}) : l); return; }
     let m = CM_DBDECO.get(l);
     if (!m || m.ver !== CM_DECO_VER) {
       const f = cmDbFields(r); const logs = l.logs || []; const lastLog = logs.length ? logs[logs.length - 1] : null;
-      const lot = Object.assign({}, l, {varietal:r.var !== 'Unknown' ? r.var : l.varietal, mlfComplete:f.mlfComplete, alert:f.alert, location:(r.v === 2025 && r.who) ? r.who : l.location, logs:(!lastLog || !lastLog.date || lastLog.date < '2026-11-19') ? logs.concat([f.log]) : logs});
+      const lot = Object.assign({}, l, {varietal:r.var !== 'Unknown' ? r.var : l.varietal, mlfComplete:f.mlfComplete, alert:f.alert, location:(r.v === 2025 && r.who) ? r.who : l.location, status:(l.status === 'active' ? 'aging' : l.status), logs:(!lastLog || !lastLog.date || lastLog.date < '2026-11-19') ? logs.concat([f.log]) : logs});
       m = {ver:CM_DECO_VER, lot:lot}; CM_DBDECO.set(l, m);
     }
     const n = (l.logs || []).length;
@@ -5335,7 +5335,7 @@ function App() {
               React.createElement("button", {key: t.id, onClick: ()=>go(t.id,SCREENS.dash), style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:"14px 10px",color:C.text,cursor:"pointer",textAlign:"left"}}, React.createElement("div", {style: {fontSize:20,marginBottom:4}}, t.icon), React.createElement("div", {style: {fontWeight:700,fontSize:13}}, t.title), React.createElement("div", {style: {fontSize:11,color:t.subColor||C.textDim,marginTop:2}}, t.sub))
             ))), React.createElement(SectionLabel, {right: React.createElement("span", {onClick: ()=>go(SCREENS.lots,SCREENS.dash), style: {color:C.accentLight,cursor:"pointer",fontWeight:600}}, "See all ›")}, "All Lots"), lots.slice(0,4).map(lot=>(
             React.createElement("div", {key: lot.id, onClick: ()=>openDetail(lot), style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:12,padding:"13px 15px",marginBottom:10,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}, React.createElement("div", {style: {flex:1,minWidth:0}}, React.createElement("div", {style: {display:"flex",alignItems:"center",gap:6}}, cmWineDot(lot), React.createElement("span", {style: {fontWeight:700,fontSize:15}}, lot.name), lot.alert&&React.createElement("span", {style: {marginLeft:4}}, React.createElement(AlertBadge, {alert: lot.alert}))), React.createElement("div", {style: {fontSize:12,color:C.textMuted,marginTop:3}}, lot.vineyard, "·", lot.clone, "·", lot.gallons, "gal"), lot.logs.length>0&&(()=>{const l=lot.logs[lot.logs.length-1];return(React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:3}}, "Last:", l.date, l.ph?` · pH ${l.ph}`:"", l.so2Free?` · SO₂ ${l.so2Free}`:""));})()), React.createElement("div", {style: {color:C.textDim,fontSize:22}}, "›"))
-          )))), screen===SCREENS.log&&(React.createElement(React.Fragment, null, saved?(
+          )))), screen===SCREENS.log&&CM_DASH.on&&React.createElement(CmLogWork, null), screen===SCREENS.log&&!CM_DASH.on&&(React.createElement(React.Fragment, null, saved?(
             React.createElement("div", {style: {textAlign:"center",padding:"40px 20px"}}, React.createElement("div", {style: {fontSize:64}}, "✓"), React.createElement("div", {style: {fontSize:24,fontWeight:800,color:C.green,marginTop:14}}, "Saved!"), React.createElement("div", {style: {color:C.textMuted,marginTop:6,marginBottom:24}}, "Log entry recorded"), savedLotId && (() => {
                 const savedLot = lots.find(l=>l.id===savedLotId);
                 if(!savedLot) return null;
