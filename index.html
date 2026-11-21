@@ -4200,7 +4200,7 @@ function CmReportsScreen(props) {
   const busyBox = busy ? cmE('div', {style:{fontSize:12, color:C.accentLight, marginBottom:10}}, busy) : null;
 
   if (tab === 'focus') return cmE(React.Fragment, null, tabs, cmE(CmFocusReports, {rows: rows || []}));
-  if (tab === 'ask') return cmE(React.Fragment, null, tabs, cmE(CmQuestions, null));
+  if (tab === 'ask') return cmE(React.Fragment, null, tabs, cmE(CmMyChecks, null), cmE(CmQuestions, null));
   if (tab === 'log') return cmE(React.Fragment, null, tabs, cmE(CmLogWork, null));
   if (tab === 'work') return cmE(React.Fragment, null, tabs, cmE(CmWork, null));
   if (tab === 'vol') return cmE(React.Fragment, null, tabs, cmE(CmVolumes, null));
@@ -5296,7 +5296,7 @@ function cmMoveLabel(t) { const f = CM_MOVE_TYPES.filter(function(x) { return x[
 function CmVolumes() {
   const sD = React.useState(null), D = sD[0], setD = sD[1];
   const sT = React.useState(0), tick = sT[0], setTick = sT[1];
-  const sF = React.useState({type:'rack', date:today(), from:'', to:'', gal:'', note:''}), F = sF[0], setF = sF[1];
+  const sF = React.useState({type:'rack', date:today(), from:'', to:'', gal:'', note:'', wine:'', cases:''}), F = sF[0], setF = sF[1];
   const sE = React.useState(''), err = sE[0], setErr = sE[1];
   const sM = React.useState(''), msg = sM[0], setMsg = sM[1];
   React.useEffect(function() { let live = true; Promise.all([cmLoadVol(), cmFetch('vessels'), cmStatusRows(), cmFetch('barrel_status_2026')]).then(function(a) {
@@ -5330,12 +5330,18 @@ function CmVolumes() {
     if (to && names.indexOf(to) === -1) throw new Error(to + ' is not a vessel or barrel on file. Pick one from the list.');
     const org = await cmOrg(); const u = await supa.auth.getUser();
     const have = from ? nowOf(from) : null;
-    const res = await supa.schema('cellarmate').from('volume_moves').insert({organization_id:org, moved_on:F.date, move_type:F.type, from_vessel:from || null, to_vessel:to || null, gallons:g, note:F.note.trim() || null, entered_by:(u.data && u.data.user && u.data.user.email) || null});
+    const res = await supa.schema('cellarmate').from('volume_moves').insert({organization_id:org, moved_on:F.date, move_type:F.type, from_vessel:from || null, to_vessel:to || null, gallons:g, note:F.note.trim() || null, entered_by:(u.data && u.data.user && u.data.user.email) || null}).select('id');
     if (res.error) throw new Error(res.error.message);
+    if (F.type === 'bottle' && !res.error) {
+      const b26 = await cmFetch('barrel_status_2026'); const br = b26.filter(function(r) { return cmCode({v:2026, b:r.barrel}) === from; })[0]; const vx = vByName[from]; const bx = bByCode[from];
+      const cs = F.cases === '' ? Math.round(g / 2.3775 * 10) / 10 : Number(F.cases);
+      const rb = await supa.schema('cellarmate').from('bottlings').insert({organization_id:org, winery:cmWineryOf(vx ? vx.owner : br ? br.owner : 'Tystrya'), bottled_on:F.date, wine:F.wine.trim() || (vx ? vx.contents : bx ? bx.var + (bx.lot ? ', ' + bx.lot : '') : null), vintage:bx ? bx.v : (vx && vx.vintage ? vx.vintage : null), wine_class:cmClassOf(vx ? (vx.contents || '') + ' ' + from : bx ? bx.var : ''), gallons:g, cases:isNaN(cs) ? null : cs, from_vessel:from, move_id:res.data && res.data[0] ? res.data[0].id : null, note:F.note.trim() || null, entered_by:CM_ME.full_name || null});
+      if (rb.error) throw new Error(rb.error.message);
+    }
     setMsg('Saved: ' + cmMoveLabel(F.type) + ', ' + g + ' gal' + (from ? ' from ' + from : '') + (to ? ' to ' + to : '') + '.' + (have != null && g > have + 0.05 ? ' Check this one: only about ' + f1(have) + ' gal was on file in ' + from + '.' : ''));
-    setF(Object.assign({}, F, {gal:'', note:''})); setTick(tick + 1);
+    setF(Object.assign({}, F, {gal:'', note:'', wine:'', cases:''})); setTick(tick + 1);
   }).catch(function(e) { setErr(e.message); }); };
-  const undo = function(id) { setErr(''); setMsg(''); Promise.resolve().then(async function() { const res = await supa.schema('cellarmate').from('volume_moves').delete().eq('id', id); if (res.error) throw new Error(res.error.message); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const undo = function(id) { setErr(''); setMsg(''); Promise.resolve().then(async function() { await supa.schema('cellarmate').from('bottlings').delete().eq('move_id', id); const res = await supa.schema('cellarmate').from('volume_moves').delete().eq('id', id); if (res.error) throw new Error(res.error.message); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
   const mk = function(n, what) { const s = startOf(n); const d = D.net[n] || 0; const now = nowOf(n); return {b:n, what:what, start:f1(s), moved:d ? (d > 0 ? '+' : '') + f1(d) : '', now:f1(now), flag:now != null && now < -0.05 ? 'Below zero: check the moves' : ''}; };
   const vRows = Object.keys(vByName).map(function(n) { const x = vByName[n]; return mk(n, (x.contents || '') + (x.owner ? ' (' + x.owner + ')' : '')); });
   const bRows = Object.keys(bByCode).filter(function(n) { return D.net[n]; }).sort(function(a, b) { return cmNat(a) - cmNat(b); }).map(function(n) { const r = bByCode[n]; return mk(n, r.var + (r.lot ? ', ' + r.lot : '')); });
@@ -5355,7 +5361,9 @@ function CmVolumes() {
         hasFrom ? cmE('div', null, cmE('label', {style:cmLbl}, 'From' + (F.from && nowOf(F.from) != null ? ' (' + f1(nowOf(F.from)) + ' gal)' : '')), cmE('input', {value:F.from, list:'cm-vnames', onChange:function(e) { set('from', e.target.value); }, placeholder:'Tank or barrel, for example 26-109', style:inp})) : null,
         hasTo ? cmE('div', null, cmE('label', {style:cmLbl}, 'To' + (F.to && nowOf(F.to) != null ? ' (' + f1(nowOf(F.to)) + ' gal)' : '')), cmE('input', {value:F.to, list:'cm-vnames', onChange:function(e) { set('to', e.target.value); }, placeholder:'Tank or barrel', style:inp})) : null,
         cmE('div', null, cmE('label', {style:cmLbl}, 'Gallons'), cmE('input', {value:F.gal, inputMode:'decimal', onChange:function(e) { set('gal', e.target.value); }, placeholder:'for example 2.5', style:inp})),
-        cmE('div', null, cmE('label', {style:cmLbl}, 'Note'), cmE('input', {value:F.note, onChange:function(e) { set('note', e.target.value); }, placeholder:'optional', style:inp}))),
+        cmE('div', null, cmE('label', {style:cmLbl}, 'Note'), cmE('input', {value:F.note, onChange:function(e) { set('note', e.target.value); }, placeholder:'optional', style:inp})),
+        F.type === 'bottle' ? cmE('div', null, cmE('label', {style:cmLbl}, 'Wine name on the label'), cmE('input', {value:F.wine, onChange:function(e) { set('wine', e.target.value); }, placeholder:'optional', style:inp})) : null,
+        F.type === 'bottle' ? cmE('div', null, cmE('label', {style:cmLbl}, 'Cases (12 x 750 mL)'), cmE('input', {value:F.cases, inputMode:'decimal', onChange:function(e) { set('cases', e.target.value); }, placeholder:'blank = worked out from gallons', style:inp})) : null),
       cmE('div', {style:{display:'flex'}}, cmBtn(cmCan('moves') ? 'Save move' : 'Your role cannot record moves', save, true, !cmCan('moves')))),
     err ? cmNote(err, C.red) : null,
     msg ? cmNote(msg, C.green) : null,
@@ -5496,14 +5504,64 @@ function CmAdmin() {
 /* == CELLARMATE MODULE 10: facility bulk wine inventory == */
 function cmWineryOf(owner) { const s = String(owner || '').toLowerCase(); if (s.indexOf('tystrya') !== -1) return 'Tystrya Estate'; if (s.indexOf('merritt') !== -1 || s.indexOf('necessity') !== -1) return 'Out of Necessity'; if (s.indexOf('dewey') !== -1) return 'RRV'; if (s.indexOf('la tonda') !== -1) return 'La Tonda'; if (s.indexOf('divinity') !== -1) return 'Divinity Wines'; if (s.indexOf('domenico') !== -1) return 'Domenico'; if (s.indexOf('house') !== -1) return 'Facility (house)'; return 'Not assigned'; }
 function cmClassOf(t) { const s = String(t || '').toLowerCase(); if (s.indexOf('port') !== -1 || s.indexOf('forte') !== -1) return 'Fortified'; if (s.indexOf('ros') !== -1) return CM_ROSE; if (s.indexOf('white') !== -1 || s.indexOf('chard') !== -1 || s.indexOf('albari') !== -1) return 'White'; if (s.indexOf('red') !== -1 || s.indexOf('pinot') !== -1 || s.indexOf('pn ') !== -1 || s.indexOf('sawyer') !== -1 || s.indexOf('stiling') !== -1) return 'Red'; return 'Not classified'; }
+function cmQuarter() { const n = new Date(); const q = Math.floor(n.getMonth() / 3) + 1; const m = (q - 1) * 3 + 1; return {label:n.getFullYear() + ' Q' + q, start:n.getFullYear() + '-' + (m < 10 ? '0' + m : m) + '-01', year:String(n.getFullYear())}; }
+function cmCheckText(c) { const s = c.snapshot || {}; return 'On file ' + (s.as_of || '') + ': ' + Number(s.gallons || 0).toLocaleString() + ' gal in ' + (s.barrels || 0) + ' barrels and ' + (s.tanks || 0) + ' tanks or kegs' + CM_MID + 'bottled this quarter: ' + (s.bottled_cases || 0) + ' cases'; }
+function cmAnswerText(c) { const r = c.response; if (!r) return ''; return (r.confirmed ? 'Confirmed as correct' : 'Corrected to ' + (r.gallons != null ? Number(r.gallons).toLocaleString() + ' gal' : 'a different amount')) + (r.cases_bottled != null ? CM_MID + r.cases_bottled + ' cases bottled this quarter' : '') + (r.note ? CM_MID + r.note : '') + CM_MID + (c.responded_by || '') + ' ' + (c.responded_on || ''); }
+function CmCheckForm(props) {
+  const c = props.check;
+  const sF = React.useState({ok:'yes', gal:'', cases:'', note:''}), F = sF[0], setF = sF[1];
+  const sE = React.useState(''), err = sE[0], setErr = sE[1];
+  const set = function(k, v) { const o = Object.assign({}, F); o[k] = v; setF(o); };
+  const inp = Object.assign({}, cmSel, {minWidth:0});
+  const save = function() { setErr(''); Promise.resolve().then(async function() {
+    const g = F.gal === '' ? null : Number(F.gal); const cs = F.cases === '' ? null : Number(F.cases);
+    if (F.ok === 'no' && (g == null || isNaN(g) || g < 0)) throw new Error('Enter the correct total gallons.');
+    if (cs != null && (isNaN(cs) || cs < 0)) throw new Error('Enter cases bottled as a number, or leave it blank.');
+    const res = await supa.schema('cellarmate').from('facility_checks').update({status:F.ok === 'yes' ? 'Confirmed' : 'Corrected', response:{confirmed:F.ok === 'yes', gallons:F.ok === 'yes' ? null : g, cases_bottled:cs, note:F.note.trim() || null}, responded_on:today(), responded_by:CM_ME.full_name || CM_ME.email || null}).eq('id', c.id).select('id');
+    if (res.error) throw new Error(res.error.message);
+    if (!res.data || !res.data.length) throw new Error('Your role does not allow answering this check.');
+    props.onDone();
+  }).catch(function(e) { setErr(e.message); }); };
+  return cmE('div', {style:{marginTop:8}},
+    cmE('div', {style:{marginBottom:8}}, cmSeg([['yes','These numbers are right'],['no','They need correcting']], F.ok, function(x) { set('ok', x); })),
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}},
+      F.ok === 'no' ? cmE('div', null, cmE('label', {style:cmLbl}, 'Correct total gallons'), cmE('input', {value:F.gal, inputMode:'decimal', onChange:function(e) { set('gal', e.target.value); }, style:inp})) : null,
+      cmE('div', null, cmE('label', {style:cmLbl}, 'Cases bottled this quarter'), cmE('input', {value:F.cases, inputMode:'decimal', onChange:function(e) { set('cases', e.target.value); }, placeholder:'blank if none', style:inp}))),
+    cmE('div', {style:{marginBottom:8}}, cmE('input', {value:F.note, onChange:function(e) { set('note', e.target.value); }, placeholder:'Anything else: wine removed, new lots, changes coming', style:inp})),
+    err ? cmNote(err, C.red) : null,
+    cmE('div', {style:{display:'flex', gap:8}}, cmBtn('Send answer', save, true, false), props.onCancel ? cmBtn('Cancel', props.onCancel, false, false) : null));
+}
+function CmMyChecks() {
+  const sD = React.useState([]), list = sD[0], setList = sD[1];
+  const sT = React.useState(0), tick = sT[0], setTick = sT[1];
+  const sM = React.useState(''), msg = sM[0], setMsg = sM[1];
+  React.useEffect(function() { let live = true; cmFresh('facility_checks').then(function(r) { if (live) setList(r.filter(function(c) { return c.organization_id === CM_ME.org_id && c.status === 'Open'; })); }).catch(function() { if (live) setList([]); }); return function() { live = false; }; }, [tick]);
+  if (!list.length && !msg) return null;
+  return cmE(React.Fragment, null,
+    msg ? cmNote(msg, C.green) : null,
+    list.map(function(c) {
+      return cmE('div', {key:c.id, style:{background:C.card, border:'1px solid ' + C.accent, borderRadius:12, padding:12, marginBottom:12}},
+        cmE('div', {style:{fontSize:14, fontWeight:800}}, 'Quarterly check, ' + c.period),
+        cmE('div', {style:{fontSize:12, color:C.textMuted, marginTop:4, lineHeight:1.5}}, (CM_ME.facility_name || 'The facility') + ' asks you to confirm what is on file for ' + (CM_ME.org_name || 'your winery') + '. ' + cmCheckText(c) + '.'),
+        ((c.snapshot || {}).rows || []).map(function(r, i) { return cmE('div', {key:i, style:{fontSize:12, color:C.text, marginTop:3}}, r.vint + ' ' + r.cls + ': ' + Number(r.gal).toLocaleString() + ' gal' + (r.barrels ? ', ' + r.barrels + ' barrels' : '') + (r.tanks ? ', ' + r.tanks + ' tanks or kegs' : '')); }),
+        cmCan('answer') ? cmE(CmCheckForm, {check:c, onDone:function() { setMsg('Thank you. Your answer for ' + c.period + ' was sent to the facility.'); setTick(tick + 1); }}) : cmE('div', {style:{fontSize:12, color:C.textDim, marginTop:8}}, 'Your winemaker or winery admin can answer this.'));
+    }));
+}
 function CmFacility() {
   const sD = React.useState(null), D = sD[0], setD = sD[1];
+  const sT = React.useState(0), tick = sT[0], setTick = sT[1];
+  const sA = React.useState(null), ansId = sA[0], setAnsId = sA[1];
   const sE = React.useState(''), err = sE[0], setErr = sE[1];
+  const sM = React.useState(''), msg = sM[0], setMsg = sM[1];
+  const db = function() { return supa.schema('cellarmate'); };
   React.useEffect(function() { let live = true;
-    Promise.all([cmLoadVol(), cmFetch('barrel_status_2026'), cmFetch('barrel_status_2025'), cmFetch('vessels')]).then(function(a) { if (live) setD({net:a[0].net, b26:a[1], b25:a[2], ves:a[3]}); })
-      .catch(function(e) { if (live) { setD({net:{}, b26:[], b25:[], ves:[]}); setErr(e.message); } });
-    return function() { live = false; }; }, []);
+    Promise.all([cmLoadVol(), cmFetch('barrel_status_2026'), cmFetch('barrel_status_2025'), cmFetch('vessels'), db().from('organizations').select('*').order('name'), cmFresh('facility_checks'), cmFresh('bottlings')]).then(function(a) {
+      if (!live) return; if (a[4].error) throw new Error(a[4].error.message);
+      setD({net:a[0].net, b26:a[1], b25:a[2], ves:a[3], orgs:a[4].data || [], checks:a[5], bot:a[6]}); })
+      .catch(function(e) { if (live) { setD({net:{}, b26:[], b25:[], ves:[], orgs:[], checks:[], bot:[]}); setErr(e.message); } });
+    return function() { live = false; }; }, [tick]);
   if (!D) return cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading...');
+  const Q = cmQuarter();
   const m = {}; let toConfirm = 0, noVol = 0, unassigned = 0;
   const cell = function(w, v, c) { const k = w + '|' + v + '|' + c; if (!m[k]) m[k] = {winery:w, vint:v, cls:c, barrels:0, bgal:0, tanks:0, tgal:0}; return m[k]; };
   D.b26.forEach(function(r) { const w = cmWineryOf(r.owner); if (w === 'Not assigned') unassigned++; const c = cell(w, 2026, cmClassOf(r.wine_type)); c.barrels++; c.bgal += Math.max(0, (r.liters != null ? Number(r.liters) : 225) / 3.785 + (D.net[cmCode({v:2026, b:r.barrel})] || 0)); });
@@ -5512,22 +5570,56 @@ function CmFacility() {
   const fmt = function(o, label) { return {vint:label != null ? label : String(o.vint), cls:o.cls || '', barrels:o.barrels || '', bgal:o.barrels ? Math.round(o.bgal).toLocaleString() : '', tanks:o.tanks || '', tgal:o.tanks ? Math.round(o.tgal).toLocaleString() : '', total:Math.round(o.bgal + o.tgal).toLocaleString()}; };
   const sum = function(list) { return list.reduce(function(s, o) { s.barrels += o.barrels; s.bgal += o.bgal; s.tanks += o.tanks; s.tgal += o.tgal; return s; }, {barrels:0, bgal:0, tanks:0, tgal:0}); };
   const all = Object.keys(m).map(function(k) { return m[k]; });
+  const ofW = function(w) { return all.filter(function(o) { return o.winery === w; }).sort(function(a, b) { return String(b.vint) < String(a.vint) ? -1 : String(b.vint) > String(a.vint) ? 1 : a.cls < b.cls ? -1 : 1; }); };
   const wineries = cmUniq(all.map(function(o) { return o.winery; })).sort(function(a, b) { return a === 'Tystrya Estate' ? -1 : b === 'Tystrya Estate' ? 1 : a < b ? -1 : 1; });
-  const groups = wineries.map(function(w) {
-    const list = all.filter(function(o) { return o.winery === w; }).sort(function(a, b) { return String(b.vint) < String(a.vint) ? -1 : String(b.vint) > String(a.vint) ? 1 : a.cls < b.cls ? -1 : 1; });
-    return {title:w, rows:list.map(function(o) { return fmt(o); }).concat([fmt(sum(list), 'Total')])};
-  });
+  const groups = wineries.map(function(w) { const list = ofW(w); return {title:w, rows:list.map(function(o) { return fmt(o); }).concat([fmt(sum(list), 'Total')])}; });
   const grand = sum(all);
   groups.push({title:'Facility total', rows:[fmt(grand, 'All wineries')]});
   const cols = [['vint','Vintage'],['cls','Wine'],['barrels','Barrels'],['bgal','Barrel gal'],['tanks','Tanks and kegs'],['tgal','Tank gal'],['total','Total gal']];
+  const botYear = D.bot.filter(function(b) { return String(b.bottled_on || '').slice(0, 4) === Q.year; });
+  const botW = cmUniq(botYear.map(function(b) { return b.winery || 'Not assigned'; })).sort();
+  const botGroups = botW.map(function(w) { const list = botYear.filter(function(b) { return (b.winery || 'Not assigned') === w; }); return {title:w, rows:list.map(function(b) { return {d:b.bottled_on, wine:b.wine || '', cls:b.wine_class || '', cases:Number(b.cases || 0), gal:Number(b.gallons || 0), from:b.from_vessel || ''}; }).concat([{d:'Total', wine:'', cls:'', cases:Math.round(list.reduce(function(s, b) { return s + Number(b.cases || 0); }, 0) * 10) / 10, gal:Math.round(list.reduce(function(s, b) { return s + Number(b.gallons || 0); }, 0) * 10) / 10, from:''}])}; });
+  const botCols = [['d','Bottled'],['wine','Wine'],['cls','Type'],['cases','Cases'],['gal','Gallons'],['from','From']];
+  const facOrgs = D.orgs.filter(function(o) { return o.facility_id && (!CM_ME.facility_id || o.facility_id === CM_ME.facility_id); });
+  const checks = D.checks.filter(function(c) { return c.period === Q.label; });
+  const older = D.checks.filter(function(c) { return c.period !== Q.label && c.status === 'Open'; });
+  const missing = facOrgs.filter(function(o) { return !checks.some(function(c) { return c.organization_id === o.id; }); });
+  const orgName = function(id) { const o = D.orgs.filter(function(x) { return x.id === id; })[0]; return o ? o.name : 'Winery'; };
+  const start = function() { setErr(''); setMsg(''); Promise.resolve().then(async function() {
+    const recs = missing.map(function(o) { const list = ofW(o.name); const s = sum(list); const qb = D.bot.filter(function(b) { return b.winery === o.name && String(b.bottled_on) >= Q.start; });
+      return {facility_id:o.facility_id, organization_id:o.id, period:Q.label, status:'Open', sent_on:today(), sent_by:CM_ME.full_name || null, snapshot:{as_of:cmStamp(), gallons:Math.round(s.bgal + s.tgal), barrels:s.barrels, tanks:s.tanks, bottled_cases:Math.round(qb.reduce(function(t, b) { return t + Number(b.cases || 0); }, 0) * 10) / 10, rows:list.map(function(x) { return {vint:String(x.vint), cls:x.cls, barrels:x.barrels, tanks:x.tanks, gal:Math.round(x.bgal + x.tgal)}; })}}; });
+    if (!recs.length) throw new Error('Every winemaker already has a check for ' + Q.label + '.');
+    const res = await db().from('facility_checks').insert(recs); if (res.error) throw new Error(res.error.message);
+    setMsg('Started the ' + Q.label + ' check for ' + recs.length + ' winemaker' + (recs.length === 1 ? '' : 's') + '.'); setTick(tick + 1);
+  }).catch(function(e) { setErr(e.message); }); };
+  const removeCheck = function(c) { setErr(''); setMsg(''); Promise.resolve().then(async function() { const res = await db().from('facility_checks').delete().eq('id', c.id); if (res.error) throw new Error(res.error.message); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const done = checks.filter(function(c) { return c.status !== 'Open'; }).length;
+  const card = {background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'10px 12px', marginBottom:8};
+  const checkCard = function(c) { const o = D.orgs.filter(function(x) { return x.id === c.organization_id; })[0] || {}; const col = c.status === 'Open' ? C.yellow : c.status === 'Confirmed' ? C.green : C.orange;
+    return cmE('div', {key:c.id, style:Object.assign({}, card, {borderLeft:'3px solid ' + col})},
+      cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}}, cmE('span', {style:{fontWeight:800, fontSize:14}}, orgName(c.organization_id) + (c.period !== Q.label ? ' (' + c.period + ')' : '')), cmE('span', {style:{fontSize:12, fontWeight:800, color:col}}, c.status === 'Open' ? 'Waiting' : c.status)),
+      cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, cmCheckText(c)),
+      c.response ? cmE('div', {style:{fontSize:12, color:C.text, marginTop:4}}, 'Answer: ' + cmAnswerText(c)) : cmE('div', {style:{fontSize:11, color:C.textDim, marginTop:4}}, o.uses_app ? 'They can answer in the app under Reports > Q&A.' : 'Records only: ask ' + (o.contact_name || 'the winemaker') + ' and record the answer here.'),
+      ansId === c.id ? cmE(CmCheckForm, {check:c, onDone:function() { setAnsId(null); setMsg('Answer recorded for ' + orgName(c.organization_id) + '.'); setTick(tick + 1); }, onCancel:function() { setAnsId(null); }})
+        : cmE('div', {style:{display:'flex', gap:8, marginTop:8}}, cmBtn(c.response ? 'Change answer' : 'Record answer', function() { setAnsId(c.id); }, false, false), c.status === 'Open' ? cmBtn('Remove', function() { removeCheck(c); }, false, false) : null));
+  };
   return cmE(React.Fragment, null,
-    cmNote((CM_ME.facility_name || 'Facility') + ': bulk wine on hand by winemaker as of ' + cmStamp() + '. Barrels are counted at their listed size, tanks at the volume on file, and both follow the volume ledger. Bottled wine is not tracked yet.'),
+    cmNote((CM_ME.facility_name || 'Facility') + ': bulk wine on hand by winemaker as of ' + cmStamp() + '. Barrels are counted at their listed size, tanks at the volume on file, and both follow the volume ledger.'),
     err ? cmNote(err, C.red) : null,
+    msg ? cmNote(msg, C.green) : null,
     cmE('div', {style:{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:12}}, [['Gallons', Math.round(grand.bgal + grand.tgal).toLocaleString()], ['Winemakers', wineries.filter(function(w) { return w !== 'Not assigned' && w !== 'Facility (house)'; }).length], ['Barrels', grand.barrels], ['Tanks and kegs', grand.tanks]].map(function(t) {
       return cmE('div', {key:t[0], style:{background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'8px 4px', textAlign:'center'}}, cmE('div', {style:{fontSize:17, fontWeight:800}}, t[1]), cmE('div', {style:{fontSize:10, color:C.textDim, fontWeight:700}}, t[0])); })),
     cmE(CmExport, {title:'Facility bulk wine inventory', sub:(CM_ME.facility_name || 'Facility') + ', by winemaker', file:'CellarMate_facility_inventory', cols:cols, groups:groups}),
     cmTable(cols, groups),
-    (toConfirm || noVol || unassigned) ? cmNote('To make this exact: ' + [unassigned ? unassigned + ' barrels have no owner written (listed under Not assigned)' : '', toConfirm ? toConfirm + ' 2025 barrels marked confirm contents are left out' : '', noVol ? noVol + ' tanks or kegs have no volume on file and count as 0 gal' : ''].filter(Boolean).join('; ') + '. The questions list covers each of these.', C.yellow) : null);
+    (toConfirm || noVol || unassigned) ? cmNote('To make this exact: ' + [unassigned ? unassigned + ' barrels have no owner written (listed under Not assigned)' : '', toConfirm ? toConfirm + ' 2025 barrels marked confirm contents are left out' : '', noVol ? noVol + ' tanks or kegs have no volume on file and count as 0 gal' : ''].filter(Boolean).join('; ') + '. The questions list covers each of these.', C.yellow) : null,
+    cmE('div', {style:cmLbl}, 'Bottled in ' + Q.year),
+    !botYear.length ? cmNote('No bottling recorded yet. Record it under Reports > Volumes with the move type Bottled.') : cmE(React.Fragment, null, cmE(CmExport, {title:'Bottled in ' + Q.year, sub:(CM_ME.facility_name || 'Facility') + ', by winemaker', file:'CellarMate_bottled_' + Q.year, cols:botCols, groups:botGroups}), cmTable(botCols, botGroups)),
+    cmE('div', {style:cmLbl}, 'Quarterly check, ' + Q.label + (checks.length ? ' (' + done + ' of ' + checks.length + ' answered)' : '')),
+    cmNote('Each winemaker is asked to confirm the gallons on file and report cases bottled. Winemakers who use the app answer under Reports > Q&A; for the others, record their answer here.'),
+    missing.length ? cmE('div', {style:{display:'flex', marginBottom:10}}, cmBtn('Start the ' + Q.label + ' check for ' + missing.length + ' winemaker' + (missing.length === 1 ? '' : 's'), start, true, false)) : null,
+    checks.map(checkCard),
+    older.length ? cmE('div', {style:cmLbl}, 'Still open from earlier quarters') : null,
+    older.map(checkCard));
 }
 
 async function getSupaProfile(userId) {
