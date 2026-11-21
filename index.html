@@ -5156,6 +5156,7 @@ function CmWork() {
   const sWho = React.useState('all'), who = sWho[0], setWho = sWho[1];
   const sNew = React.useState(false), isNew = sNew[0], setNew = sNew[1];
   const sOpen = React.useState(null), openId = sOpen[0], setOpenId = sOpen[1];
+  const sG = React.useState({}), gr = sG[0], setGr = sG[1];
   const sF = React.useState({type:'so2', title:'', v:'2026', who:'', due:today(), notes:'', pick:'all', q:''}), F = sF[0], setF = sF[1];
   const sS = React.useState({}), sel = sS[0], setSel = sS[1];
   const sE = React.useState(''), err = sE[0], setErr = sE[1];
@@ -5196,6 +5197,8 @@ function CmWork() {
     const all = o.barrels || []; const done = o.done_barrels || [];
     if (all.length && !done.length) throw new Error('Tick the barrels that were done, or use Tick all, before finishing.');
     const org = await cmOrg(); const u = await supa.auth.getUser(); const day = today();
+    let fb = null;
+    if (o.task_type === 'so2') { const miss = done.filter(function(code) { const r = byCode[code]; return !r || r.g == null; }); if (miss.length) { fb = Number(gr[o.id]); if (!gr[o.id] || isNaN(fb) || fb <= 0) throw new Error(miss.length + ' ticked barrel' + (miss.length === 1 ? ' has' : 's have') + ' no SO2 amount on the status sheet (' + miss.slice(0, 8).join(', ') + '). Enter the grams per barrel in the box above Finish.'); } }
     const recs = [];
     if (o.task_type === 'top') {
       const r1 = await db().from('topping_log').insert({organization_id:org, vintage:o.vintage, scope:done.length + ' barrels (work order)', topped_on:day, note:o.title});
@@ -5203,7 +5206,7 @@ function CmWork() {
     } else done.forEach(function(code) {
       const r = byCode[code]; const raw = r ? r.raw : code;
       const rec = {organization_id:org, vintage:o.vintage, barrel:raw, action_type:'note', done_on:day, grams:null, value:null, note:null};
-      if (o.task_type === 'so2') { rec.action_type = 'so2'; rec.grams = r ? r.g : null; }
+      if (o.task_type === 'so2') { rec.action_type = 'so2'; rec.grams = r && r.g != null ? r.g : fb; }
       else if (o.task_type === 'ml') rec.action_type = 'ml';
       else rec.note = 'Work order done: ' + o.title;
       recs.push(rec);
@@ -5273,6 +5276,7 @@ function CmWork() {
               cmE('span', {style:{width:22, height:22, borderRadius:5, border:'2px solid ' + (on ? C.green : C.textDim), background:on ? C.green : 'transparent', flexShrink:0, color:'#fff', fontSize:13, lineHeight:'19px', textAlign:'center', fontWeight:800}}, on ? 'x' : ''),
               cmE('div', {style:{minWidth:0, flex:1, fontSize:12}}, cmDot(r.col, 9), cmE('span', {style:{fontWeight:800, fontSize:13}}, code), cmE('span', {style:{color:C.textMuted, marginLeft:6}}, (r.var || '') + (o.task_type === 'so2' && r.g != null ? CM_MID + r.g + ' g' + (r.tab ? ' (' + r.tab + ')' : '') : ''))));
           }),
+          (o.status === 'Open' && o.task_type === 'so2' && bs.some(function(code) { const r = byCode[code]; return !r || r.g == null; })) ? cmE('div', {style:{marginTop:8}}, cmE('label', {style:cmLbl}, 'Grams per barrel where the sheet lists none'), cmE('input', {value:gr[o.id] || '', inputMode:'decimal', onChange:function(e) { const g2 = Object.assign({}, gr); g2[o.id] = e.target.value; setGr(g2); }, placeholder:'for example 10', style:inp})) : null,
           o.status === 'Open' ? cmE('div', {style:{display:'flex', gap:8, marginTop:8}},
             bs.length ? cmBtn('Tick all', function() { saveTicks(o, bs.slice()); }, false, dn.length === bs.length) : null,
             cmBtn('Finish', function() { finish(o); }, true, false),
