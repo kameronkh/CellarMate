@@ -108,6 +108,7 @@
   function safe(n) { return String(n).replace(/[^\w.\-]+/g, '_').slice(-80); }
   async function saveOne(r, meta, org) {
     var o = org || ORG_DEFAULT; var stamp = Date.now() + '_' + Math.round(Math.random() * 1e4);
+    if (window.cmPlan && !(await window.cmPlan.canStore(o))) throw new Error('Storing files and photos is part of the paid plans. Basic keeps your records and weather free.');
     var base = o + '/' + new Date().toISOString().slice(0, 7) + '/' + stamp + '_' + safe(r.file.name);
     var up = await supa.storage.from(BUCKET).upload(base, r.file, { contentType: r.file.type || 'application/octet-stream', upsert: false });
     if (up.error) throw new Error('Upload failed: ' + up.error.message);

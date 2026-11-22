@@ -227,6 +227,17 @@ window.cmSmoke = async function(opts) {
   ok('55 original vineyard files stored and linked', vf.length >= 55, vf.length);
   const sg = await supa.storage.from('cellar-files').createSignedUrl(vf[0].path, 60);
   ok('a stored vineyard file opens', !!(sg.data && sg.data.signedUrl), sg.error ? sg.error.message : '');
+  /* 1r. plans, usage meter and data export */
+  ok('plan module loaded', !!(window.cmPlan && window.cmPlanInfo && window.cmUsageBars && CM_MODULES.plan));
+  ok('Basic plan is free and leaves out files and AI', cmPlanInfo('basic').price === 'Free' && cmPlanInfo('basic').files === false && cmPlanInfo('basic').ai === 0);
+  const ub = cmUsageBars({file_bytes: 6 * 1024 * 1024 * 1024, ai_reads_month: 10, support_minutes_month: 0}, 'single');
+  ok('usage meter flags going over what the plan includes', ub[0].over === true && ub[1].over === false && Math.round(ub[1].pct) === 20, JSON.stringify(ub.map(function(b) { return b.text; })));
+  const myPlan = await cmPlan.get(CM_ME.org_id);
+  ok('this account is on the host plan and can store files', myPlan === 'host' && await cmPlan.canStore(CM_ME.org_id), myPlan);
+  const us = await cmPlan.usage(CM_ME.org_id);
+  ok('usage meter reads records, files and acres', us.records > 1000 && us.files >= 55 && Number(us.acres) > 14 && us.weather_days > 3000, JSON.stringify(us));
+  const bas = await supa.schema('cellarmate').rpc('can_store_files', {o: '6ec5f09c-a000-4a40-b5dd-3652aa757963'});
+  ok('a Basic account cannot store files', bas.data === false, JSON.stringify(bas));
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -247,7 +258,7 @@ window.cmSmoke = async function(opts) {
   const g = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Kameron'; })[0];
   if (g && /logging today/.test(document.body.innerText.slice(0, 300))) { g.click(); await wait(1500); }
   for (const n of ['Cellar', 'Lots', 'Health', 'Schedule', 'Reports']) { nav(n); await wait(1600); ok('screen ' + n, document.body.innerText.length > 500 && !bad(), bad()); }
-  for (const t of ['Today', 'Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Files', 'Vintages', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
+  for (const t of ['Today', 'Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Files', 'Vintages', 'Plan', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
     if (!click(t, 'button')) continue; await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }
