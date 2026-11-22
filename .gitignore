@@ -21,3 +21,5 @@ __pycache__/
 # Temp / scratch files
 *.tmp
 *.log
+purchase_lines_load.json
+index.html.bak*

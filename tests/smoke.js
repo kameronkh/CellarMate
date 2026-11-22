@@ -21,6 +21,11 @@ window.cmSmoke = async function(opts) {
   ok('presumed loss faster at high pH', cmLossPerDay(3.9) > cmLossPerDay(3.5));
   ok('number swap keeps other numbers', cmSubNum('a=-123&b=-1234', -123, 9) === 'a=9&b=-1234');
 
+  /* 1b. lots from the database (built-in data retired) */
+  ok('built-in lot list is empty', typeof initialLots !== 'undefined' && initialLots.length === 0);
+  ok('lots loaded from database', CM_LOTS.ready && CM_LOTS.count >= 490, CM_LOTS.count);
+  ok('no lot sync errors', !CM_LOTS.err, CM_LOTS.err);
+  ok('lot sync helpers present', typeof cmLotsSync === 'function' && typeof cmLoadDbLots === 'function');
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
