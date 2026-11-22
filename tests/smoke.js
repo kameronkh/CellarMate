@@ -72,6 +72,18 @@ window.cmSmoke = async function(opts) {
   const un = MVt.unplaced(bm, bmz[1], bmz[2]);
   ok('unplaced list excludes placed barrels', un.length > 0 && !un.some(function(u) { return bm.some(function(p) { return p.barrel === u.barrel && p.vintage === u.vintage; }); }), un.length);
   ok('placing onto a barrel is refused', MVt.plan(bm, un[0], other).ok === false);
+  /* 1g. costs per lot */
+  ok('fermenter list parsed from lot names', JSON.stringify(cmFermentersOf('Estate Blk 4 + 13 (F30/33)')) === JSON.stringify(['F30','F33']) && JSON.stringify(cmFermentersOf('Sawyer (F14, F15, F16)')) === JSON.stringify(['F14','F15','F16']) && cmFermentersOf('Tystrya Rose (039)').length === 0);
+  const cz = await Promise.all(['supplies','supply_lots','purchase_lines','fermenter_additions','barrel_status_2026'].map(function(t) { return cmFetch(t); }));
+  const uc = cmUnitCosts(cz[0], cz[1], cz[2]);
+  const brg = cz[0].filter(function(s) { return /BRG/.test(s.name); })[0];
+  ok('BRG costs about 12 cents a gram', brg && uc[brg.id].perUnit > 0.08 && uc[brg.id].perUnit < 0.2, brg && uc[brg.id].perUnit);
+  const lc = cmLotCosts(cz[4], cz[3], uc, 2026, await cmFetch('fermenters'));
+  ok('2026 lots get a materials cost', lc.length >= 15 && lc.every(function(r) { return r.cost >= 0 && !isNaN(r.cost); }), lc.length);
+  const priced = cz[3].filter(function(a) { return a.vintage === 2026 && a.grams != null && (a.supply_id || a.likely_supply_id); });
+  const pricedTotal = priced.reduce(function(t, a) { const u = uc[a.supply_id || a.likely_supply_id]; return t + (u && u.perUnit != null && u.unit === 'g' ? u.perUnit * Number(a.grams) : 0); }, 0);
+  const lotTotal = lc.reduce(function(t, r) { return t + r.cost; }, 0);
+  ok('lot costs add up to no more than priced additions', lotTotal <= pricedTotal + 0.01, lotTotal.toFixed(2) + ' of ' + pricedTotal.toFixed(2));
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -92,7 +104,7 @@ window.cmSmoke = async function(opts) {
   const g = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Kameron'; })[0];
   if (g && /logging today/.test(document.body.innerText.slice(0, 300))) { g.click(); await wait(1500); }
   for (const n of ['Cellar', 'Lots', 'Health', 'Schedule', 'Reports']) { nav(n); await wait(1600); ok('screen ' + n, document.body.innerText.length > 500 && !bad(), bad()); }
-  for (const t of ['Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Materials', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
+  for (const t of ['Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Materials', 'Costs', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
     if (!click(t, 'button')) continue; await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }
