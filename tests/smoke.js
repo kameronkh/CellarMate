@@ -255,6 +255,15 @@ window.cmSmoke = async function(opts) {
   ok('owner access adds and removes', !mIns.error && mDel.data && mDel.data.length === 1, mIns.error ? mIns.error.message : '');
   const myv = await dbv.rpc('my_vineyards');
   ok('my vineyards answers for this login', !myv.error && Array.isArray(myv.data), myv.error ? myv.error.message : '');
+  /* 1t. LIVE and organic paperwork */
+  ok('certification module loaded', !!(window.CmCertPapers && window.cmLivePur && window.cmLiveIrrigation && window.cmParseProducts));
+  const pp = cmParseProducts('Nu Film P 3 oz/acre; Microthiol 4.42 lbs / A; Seaweed');
+  ok('spray product lines split into name, rate and unit', pp.length === 3 && pp[0].name === 'Nu Film P' && pp[0].rate === 3 && pp[1].rate === 4.42 && pp[2].rate === null, JSON.stringify(pp));
+  const cp = await Promise.all(['vineyard_sprays','spray_products','vineyard_activities','vineyard_blocks'].map(function(t) { return cmFetch(t); }));
+  const pur25 = cmLivePur(cp[0], cp[1], 2025, 'Tystrya Estate');
+  ok('2025 LIVE pesticide use report built from the spray records', pur25.rows.length >= 15 && pur25.rows.every(function(r) { return r['Product Trade Name'] && r['Date Applied']; }) && pur25.issues.unmatched.length === 0, pur25.rows.length + ' rows; unmatched ' + pur25.issues.unmatched.join(','));
+  const irr25 = cmLiveIrrigation(cp[2], 2025, cp[3], 'Tystrya Estate');
+  ok('2025 LIVE irrigation report has the 26 entries', irr25.length === 26 && irr25[0]['PLANTS/ACRE'] === 1452, irr25.length);
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -298,6 +307,7 @@ window.cmSmoke = async function(opts) {
   if (pvb) { pvb.click(); for (let i = 0; i < 20 && !/Records and files \(/.test(document.body.innerText); i++) await wait(1000); }
   ok('Vine Blocks shows the schedule, owner access and the owner preview', /Schedule and owner access/.test(document.body.innerText) && /vineyard owner view/i.test(document.body.innerText) && /Done lately/.test(document.body.innerText) && /Records and files \(/.test(document.body.innerText) && !bad(), bad());
   if (pvb) { const cl = Array.from(document.querySelectorAll('button')).filter(function(b) { return b.innerText.trim() === 'Close preview'; })[0]; if (cl) cl.click(); await wait(500); }
+  ok('Vine Blocks shows the certification paperwork', /Certification paperwork/.test(document.body.innerText) && /Download pesticide use report/.test(document.body.innerText) && !bad(), bad());
   ok('Vine Blocks shows mildew pressure, ripeness samples and harvest watch', /Powdery mildew pressure \(Gubler-Thomas index\)/.test(document.body.innerText) && /Ripeness samples/.test(document.body.innerText) && /Harvest watch: Estate/.test(document.body.innerText) && /index started/.test(document.body.innerText) && !bad(), bad() || document.body.innerText.slice(document.body.innerText.indexOf('Powdery'), document.body.innerText.indexOf('Powdery') + 200));
   /* 4. layout at this width */
   const over = Array.from(document.querySelectorAll('button,input,select,table')).filter(function(e) { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 2 && !e.closest('[style*=overflow-x]'); }).length;
