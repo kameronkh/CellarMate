@@ -105,6 +105,19 @@ window.cmSmoke = async function(opts) {
   ok('a rack topping covers only that rack', ts2.filter(function(r) { return r.last === '2026-11-20'; }).every(function(r) { return r.p.area === 'EBS' && r.p.rack === 4; }) && ts2.some(function(r) { return r.last === '2026-11-20'; }));
   ok('a named-barrel topping covers that barrel', ts2.filter(function(r) { return r.last === '2026-11-21'; }).map(function(r) { return r.p.barrel; }).join() === '26-022');
   ok('overdue after the interval', cmToppingStatus(bm, [{vintage:2026, topped_on:'2026-10-01'}], 21, '2026-11-22').filter(function(r) { return r.p.vintage === 2026; }).every(function(r) { return r.status === 'overdue'; }));
+  /* 1j. lab results */
+  ok('lab module loaded', !!(window.CM_MODULES && CM_MODULES.lab && window.cmParseLab));
+  const lp1 = cmParseLab('26-022 11/20 pH 3.41 TA 6.2 VA 0.42 Free SO2 22', '2026-11-22');
+  ok('quick lab line reads 4 results', lp1.rows.length === 4 && lp1.rows[0].barrel === '26-022' && lp1.rows[0].sampled_on.slice(5) === '11-20' && lp1.rows[3].analyte === 'fso2');
+  const lp2 = cmParseLab('Sample\tDate\tpH\tVA (g/L)\tMalic\n25-183\t11/20/2026\t3.55\t0.62\t<0.05', '2026-11-22');
+  ok('pasted lab table reads results', lp2.rows.length === 3 && lp2.rows[0].vintage === 2025 && lp2.rows[0].barrel === '183', JSON.stringify(lp2));
+  const pn = cmLatestPanels(lp2.rows, [], []);
+  ok('VA 0.62 is flagged', cmLabFlags(pn[0], false).some(function(f) { return /^VA/.test(f); }));
+  const lz = await Promise.all([cmFetch('lab_results'), cmFetch('so2_log'), cmFetch('malic_results')]);
+  const allP = cmLatestPanels(lz[0], lz[1], lz[2]);
+  ok('latest panels built from the SO2 log and malic tests', allP.length >= 150, allP.length);
+  const p7 = allP.filter(function(p) { return p.vintage === 2025 && p.barrel === '7'; })[0];
+  ok('a reading taken before an SO2 add asks for a re-test, not a low-SO2 alarm', p7 && cmLabFlags(p7, false).some(function(f) { return /after the last reading/.test(f); }) && !cmLabFlags(p7, false).some(function(f) { return /^Molecular/.test(f); }), p7 && JSON.stringify(cmLabFlags(p7, false)));
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -125,7 +138,7 @@ window.cmSmoke = async function(opts) {
   const g = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Kameron'; })[0];
   if (g && /logging today/.test(document.body.innerText.slice(0, 300))) { g.click(); await wait(1500); }
   for (const n of ['Cellar', 'Lots', 'Health', 'Schedule', 'Reports']) { nav(n); await wait(1600); ok('screen ' + n, document.body.innerText.length > 500 && !bad(), bad()); }
-  for (const t of ['Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Materials', 'Costs', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
+  for (const t of ['Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
     if (!click(t, 'button')) continue; await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }

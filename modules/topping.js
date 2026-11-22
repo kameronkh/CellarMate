@@ -78,7 +78,7 @@
     var setIval = function (n) { setIv(n); try { localStorage.setItem(KEY, String(n)); } catch (e) {} };
     var startForm = function (G) { setErr(''); setMsg(''); setForm({ date: today(), scope: G ? 'group' : 'all26', group: G ? G.area + '|' + G.rack : '', list: '', vessel: '', liters: '', note: '' }); };
     var save = function () {
-      var f = form; var rec = { organization_id: (D.items[0] && D.items[0].organization_id) || '762fc809-0341-4ee2-834f-16e707181ea7', topped_on: f.date, topping_vessel: f.vessel || null, liters_used: f.liters === '' ? null : Number(f.liters), note: f.note || null, entered_by: (window.CM_ME && CM_ME.full_name) || null };
+      var f = form; var rec = { organization_id: (D.items[0] && D.items[0].organization_id) || '762fc809-0341-4ee2-834f-16e707181ea7', topped_on: f.date, topping_vessel: f.vessel || null, liters_used: f.liters === '' ? null : Number(f.liters), note: f.note || null, entered_by: ((typeof CM_ME !== 'undefined' && CM_ME.full_name) || null) };
       if (!f.date) { setErr('Pick the date.'); return; }
       if (f.liters !== '' && isNaN(Number(f.liters))) { setErr('Liters used must be a number.'); return; }
       if (f.scope === 'all26') { rec.vintage = 2026; rec.scope = 'All 2026 barrels'; }
