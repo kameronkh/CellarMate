@@ -192,6 +192,24 @@ window.cmSmoke = async function(opts) {
   ok('2026 Estate sprays checked against the weather', sr.length >= 5 && sr.every(function(r) { return r.rain3 !== null; }), sr.map(function(r) { return r.date + ' ' + (r.rain3 == null ? '-' : r.rain3.toFixed(2)); }).join(', '));
   const anonC = window.supabase && window.supabase.createClient && typeof SUPA_URL !== 'undefined' && typeof SUPA_KEY !== 'undefined' ? window.supabase.createClient(SUPA_URL, SUPA_KEY, {auth: {persistSession: false, autoRefreshToken: false, storageKey: 'cm-smoke-anon'}}) : null;
   if (anonC) { const an = await anonC.schema('cellarmate').from('lots').select('id').limit(1); ok('signed-out visitor cannot read lots', !!an.error || !(an.data || []).length, an.error ? an.error.message : (an.data || []).length + ' rows'); }
+  /* 1p. mildew pressure, ripeness samples, harvest watch */
+  ok('mildew and ripeness modules loaded', !!(window.CmMildew && window.cmMildewIndex && window.CmRipeness && window.CmHarvestWatch && window.cmRipeTrend));
+  const gh = cmGtFromHourly(['2030-06-01T00:00','2030-06-01T01:00','2030-06-01T02:00','2030-06-01T03:00','2030-06-01T04:00','2030-06-01T05:00','2030-06-01T06:00','2030-06-01T07:00','2030-06-01T08:00','2030-06-01T09:00'], [71,72,73,74,75,76,77,90,96,80]);
+  ok('mildew hours: longest 70 to 85 run and hours at 95+', gh['2030-06-01'].gt === 7 && gh['2030-06-01'].hot === 1, JSON.stringify(gh));
+  const mi = cmMildewIndex([{date:'2030-05-01', gt:7, hot:0}, {date:'2030-05-02', gt:6, hot:0}, {date:'2030-05-03', gt:8, hot:0}, {date:'2030-05-04', gt:9, hot:0}, {date:'2030-05-05', gt:2, hot:1}, {date:'2030-05-06', gt:0, hot:0}]);
+  ok('Gubler-Thomas index starts at 60 after 3 days, +20, -10, -10 for heat', mi[1].index === null && mi[2].index === 60 && mi[3].index === 80 && mi[4].index === 60 && mi[5].index === 50, JSON.stringify(mi.map(function(d) { return d.index; })));
+  const ser = []; for (let i = 0; i < 14; i++) ser.push({date: '2030-06-' + ('0' + (i + 1)).slice(-2), index: 80});
+  const cov = cmMildewCoverage(ser, [{date:'2030-06-01'}]);
+  ok('mildew coverage: high pressure past 10 days since spray', cov.length === 1 && cov[0].from === '2030-06-12' && cov[0].days === 3, JSON.stringify(cov));
+  const fakeSeason = {at: function(d) { return {'2030-09-01': 2000, '2030-09-08': 2100}[d]; }};
+  const rt = cmRipeTrend([{sampled_on:'2030-09-01', brix:18}, {sampled_on:'2030-09-08', brix:20}], fakeSeason, 23.5);
+  ok('ripeness trend: Brix per 100 heat and heat needed for 23.5', Math.abs(rt.per100 - 2) < 1e-9 && Math.abs(rt.needGdd - 2275) < 1e-6, JSON.stringify({p: rt.per100, n: rt.needGdd}));
+  const hw = cmHarvestWatch({blocks: hh.blocks, season: ss[2026], normal: cmNormalDaily(wxr.days, 2026), asOf: '2026-11-15', year: 2026, samples: []});
+  ok('harvest watch: 2026 Estate blocks all show as picked', hw.length >= 13 && hw.every(function(r) { return r.picked.length > 0; }), hw.filter(function(r) { return !r.picked.length; }).map(function(r) { return r.block; }).join(','));
+  const orgId = est.organization_id;
+  const ins = await supa.schema('cellarmate').from('berry_samples').insert({organization_id: orgId, vintage: 2026, sampled_on: '2026-09-01', vineyard: 'Tystrya Estate', block: 7, brix: 21.4, ph: 3.31, note: 'SMOKE TEST'}).select('id').single();
+  const del = ins.data ? await supa.schema('cellarmate').from('berry_samples').delete().eq('id', ins.data.id).select('id') : null;
+  ok('berry sample saves and deletes', !ins.error && del && !del.error && del.data.length === 1, ins.error ? ins.error.message : '');
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -227,6 +245,8 @@ window.cmSmoke = async function(opts) {
   const vb = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Vine Blocks'; })[0];
   if (vb) { vb.click(); for (let i = 0; i < 20 && !/Spray program and rain/.test(document.body.innerText); i++) await wait(1000); }
   ok('Vine Blocks shows weather and harvest', /Heat units and rain/.test(document.body.innerText) && /Estate blocks: tons per acre/.test(document.body.innerText) && /Spray program and rain/.test(document.body.innerText) && !bad(), bad() || (/Fetching weather/.test(document.body.innerText) ? 'weather still loading' : 'spray card missing'));
+  for (let i = 0; i < 40; i++) { const tx = document.body.innerText; if (/index started|index never started/.test(tx) && !/Loading weather and block history/.test(tx)) break; await wait(1000); }
+  ok('Vine Blocks shows mildew pressure, ripeness samples and harvest watch', /Powdery mildew pressure \(Gubler-Thomas index\)/.test(document.body.innerText) && /Ripeness samples/.test(document.body.innerText) && /Harvest watch: Estate/.test(document.body.innerText) && /index started/.test(document.body.innerText) && !bad(), bad() || document.body.innerText.slice(document.body.innerText.indexOf('Powdery'), document.body.innerText.indexOf('Powdery') + 200));
   /* 4. layout at this width */
   const over = Array.from(document.querySelectorAll('button,input,select,table')).filter(function(e) { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 2 && !e.closest('[style*=overflow-x]'); }).length;
   ok('nothing cut off at ' + innerWidth + ' px', document.documentElement.scrollWidth <= innerWidth + 2 && !over, over + ' cut off');

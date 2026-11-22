@@ -8,6 +8,7 @@
    3. Crop estimates (harvest_estimates): estimate against target tons per acre, against history,
       against the actual harvest, and a projected ripe date against the target pick window.
    4. Spray program against rain (wash-off) and heat units between sprays (vineyard_sprays).
+   Mildew pressure (mildew.js) and ripeness samples (ripeness.js) render inside this screen.
    Pure helpers are on window for the smoke tests: cmGddSeason, cmHarvestHistory, cmProjectRipe,
    cmCropCheck, cmSprayCheck. */
 (function () {
@@ -138,11 +139,11 @@
   async function loadCached(siteId) {
     var out = [], from = 0;
     while (true) {
-      var r = await db().from('weather_daily').select('date,tmax_f,tmin_f,precip_in').eq('vineyard_id', siteId).order('date').range(from, from + 999);
+      var r = await db().from('weather_daily').select('date,tmax_f,tmin_f,precip_in,gt_hours,hot_hours').eq('vineyard_id', siteId).order('date').range(from, from + 999);
       if (r.error) throw new Error(r.error.message);
       out = out.concat(r.data || []); if (!r.data || r.data.length < 1000) break; from += 1000;
     }
-    return out.map(function (d) { return { date: d.date, tmax: num(d.tmax_f), tmin: num(d.tmin_f), p: num(d.precip_in) }; });
+    return out.map(function (d) { return { date: d.date, tmax: num(d.tmax_f), tmin: num(d.tmin_f), p: num(d.precip_in), gt: num(d.gt_hours), hot: num(d.hot_hours) }; });
   }
   async function fetchArchive(lat, lon, start, end) {
     var u = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon + '&start_date=' + start + '&end_date=' + end +
@@ -323,6 +324,13 @@
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, vy + ': fruit received by vintage'),
         (function () { var g = H.growers.filter(function (x) { return x.vineyard === vy; })[0]; if (!g) return cmE('div', { style: small }, 'No picks on file.'); return Object.keys(g.years).sort().map(function (y) { var c = g.years[y]; return cmE('div', { key: y, style: { fontSize: 12 } }, y + ': ' + r1(c.tons, 2) + ' t in ' + c.picks + ' pick(s)' + (c.first ? ', ' + mmdd(c.first) + (c.last !== c.first ? ' to ' + mmdd(c.last) : '') : '') + (num(site && site.acres) ? ' · ' + r1(c.tons / site.acres, 2) + ' t/ac' : '')); }); })()) : null,
 
+      /* powdery mildew pressure (mildew.js) */
+      vy === 'Tystrya Estate' && wx.days && window.CmMildew ? cmE(window.CmMildew, { site: wsite, days: wx.days, sprays: D.sprays, years: showYears }) : null,
+
+      /* ripeness samples (ripeness.js) */
+      window.CmRipeness ? cmE(window.CmRipeness, { vineyard: vy, site: site, blocks: H.blocks, seasons: seasons, normal: normal }) : null,
+      vy === 'Tystrya Estate' && window.CmHarvestWatch ? cmE(window.CmHarvestWatch, { always: true }) : null,
+
       /* crop estimates */
       cmE('div', { style: card },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Crop estimates and pick window'),
@@ -347,5 +355,6 @@
   window.cmSprayCheck = cmSprayCheck;
   window.cmVineyardHeat = heatAtPick;
   window.cmWeatherFor = cmWeatherFor;
+  window.cmNormalDaily = normalDaily;
   window.CmVineyard = CmVineyard;
 })();
