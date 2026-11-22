@@ -186,6 +186,12 @@ window.cmSmoke = async function(opts) {
   const wxr = await cmWeatherFor(est); const ss = cmGddSeason(wxr.days);
   ok('weather 2017 to now cached for the Estate', wxr.days.length > 3500 && ss[2024] && ss[2026], wxr.days.length + ' days');
   ok('2024 to 2026 heat units in the Willamette range', [2024, 2025, 2026].every(function(y) { return ss[y].gdd > 1800 && ss[y].gdd < 3000; }), [2024, 2025, 2026].map(function(y) { return Math.round(ss[y].gdd); }).join(', '));
+  const sp = cmSprayCheck([{spray:1, date:'2030-05-01'}, {spray:2, date:'2030-05-11'}], [{date:'2030-05-02', tmax:70, tmin:50, p:0.3}, {date:'2030-05-03', tmax:70, tmin:50, p:0.3}, {date:'2030-05-10', tmax:80, tmin:60, p:0}]);
+  ok('spray check: wash-off rain, gap and heat between sprays', sp[0].washoff === true && Math.abs(sp[0].rain3 - 0.6) < 1e-9 && sp[1].gap === 10 && sp[1].heat === 40 && sp[1].rain3 === null && sp[1].washoff === false, JSON.stringify(sp));
+  const sprays = await cmFetch('vineyard_sprays'); const sr = cmSprayCheck(sprays, wxr.days);
+  ok('2026 Estate sprays checked against the weather', sr.length >= 5 && sr.every(function(r) { return r.rain3 !== null; }), sr.map(function(r) { return r.date + ' ' + (r.rain3 == null ? '-' : r.rain3.toFixed(2)); }).join(', '));
+  const anonC = window.supabase && window.supabase.createClient && typeof SUPA_URL !== 'undefined' && typeof SUPA_KEY !== 'undefined' ? window.supabase.createClient(SUPA_URL, SUPA_KEY, {auth: {persistSession: false, autoRefreshToken: false, storageKey: 'cm-smoke-anon'}}) : null;
+  if (anonC) { const an = await anonC.schema('cellarmate').from('lots').select('id').limit(1); ok('signed-out visitor cannot read lots', !!an.error || !(an.data || []).length, an.error ? an.error.message : (an.data || []).length + ' rows'); }
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -219,8 +225,8 @@ window.cmSmoke = async function(opts) {
   /* 3b. vineyard side */
   nav('Cellar'); await wait(1200);
   const vb = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Vine Blocks'; })[0];
-  if (vb) { vb.click(); await wait(4000); }
-  ok('Vine Blocks shows weather and harvest', /Heat units and rain/.test(document.body.innerText) && /Estate blocks: tons per acre/.test(document.body.innerText) && !bad(), bad());
+  if (vb) { vb.click(); for (let i = 0; i < 20 && !/Spray program and rain/.test(document.body.innerText); i++) await wait(1000); }
+  ok('Vine Blocks shows weather and harvest', /Heat units and rain/.test(document.body.innerText) && /Estate blocks: tons per acre/.test(document.body.innerText) && /Spray program and rain/.test(document.body.innerText) && !bad(), bad() || (/Fetching weather/.test(document.body.innerText) ? 'weather still loading' : 'spray card missing'));
   /* 4. layout at this width */
   const over = Array.from(document.querySelectorAll('button,input,select,table')).filter(function(e) { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 2 && !e.closest('[style*=overflow-x]'); }).length;
   ok('nothing cut off at ' + innerWidth + ' px', document.documentElement.scrollWidth <= innerWidth + 2 && !over, over + ' cut off');

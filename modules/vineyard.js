@@ -7,8 +7,9 @@
       grower tons by vintage (picks), and the heat units each block had reached when picked.
    3. Crop estimates (harvest_estimates): estimate against target tons per acre, against history,
       against the actual harvest, and a projected ripe date against the target pick window.
+   4. Spray program against rain (wash-off) and heat units between sprays (vineyard_sprays).
    Pure helpers are on window for the smoke tests: cmGddSeason, cmHarvestHistory, cmProjectRipe,
-   cmCropCheck. */
+   cmCropCheck, cmSprayCheck. */
 (function () {
   'use strict';
   var BASE = 50, START = '2017-01-01';
@@ -118,6 +119,21 @@
     return { tpa: tpa, flags: flags };
   }
 
+
+  /* Spray program against the weather: days since the last spray, rain in the 3 days after
+     (0.5 in or more may wash it off), and heat units between sprays. */
+  function cmSprayCheck(sprays, days) {
+    var byDate = {}; (days || []).forEach(function (d) { byDate[d.date] = d; });
+    var list = (sprays || []).filter(function (s) { return s.date; }).slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    return list.map(function (s, i) {
+      var prev = list[i - 1], rain = 0, heat = null, have = 0;
+      for (var k = 1; k <= 3; k++) { var d = byDate[addDays(s.date, k)]; if (d) { rain += num(d.p) || 0; have++; } }
+      if (prev) { heat = 0; for (var x = addDays(prev.date, 1); x <= s.date; x = addDays(x, 1)) { if (byDate[x]) heat += gddOf(byDate[x]); } }
+      var gap = prev ? Math.round((new Date(s.date) - new Date(prev.date)) / 864e5) : null;
+      return { spray: s.spray, date: s.date, stage: s.growth_stage, reason: s.reason, products: s.products_rate_per_acre, gap: gap, heat: heat, rain3: have ? rain : null, washoff: have > 0 && rain >= 0.5 };
+    });
+  }
+
   /* ── weather cache ── */
   async function loadCached(siteId) {
     var out = [], from = 0;
@@ -157,8 +173,8 @@
     var ls = React.useState(null), edit = ls[0], setEdit = ls[1];
     var reload = function () {
       ['vineyards', 'harvest_estimates'].forEach(function (t) { if (typeof CM_CACHE !== 'undefined') delete CM_CACHE[t]; });
-      return Promise.all(['vineyards', 'vineyard_blocks', 'estate_harvests', 'picks', 'harvest_estimates'].map(function (t) { return cmFetch(t); }))
-        .then(function (a) { setD({ sites: a[0], H: cmHarvestHistory({ blocks: a[1], estate: a[2], picks: a[3] }), picks: a[3], est: a[4] }); })
+      return Promise.all(['vineyards', 'vineyard_blocks', 'estate_harvests', 'picks', 'harvest_estimates', 'vineyard_sprays'].map(function (t) { return cmFetch(t); }))
+        .then(function (a) { setD({ sites: a[0], H: cmHarvestHistory({ blocks: a[1], estate: a[2], picks: a[3] }), picks: a[3], est: a[4], sprays: a[5] }); })
         .catch(function (x) { setErr(x.message); });
     };
     React.useEffect(function () { reload(); }, []);
@@ -290,6 +306,18 @@
               cmE('td', { style: td }, avg ? r1(avg, 2) : ''), cmE('td', { style: td }, b.gddPick ? r1(b.gddPick, 0) : ''));
           })))) : null,
 
+
+      /* spray program */
+      vy === 'Tystrya Estate' && D.sprays.length && wx.days ? cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
+        cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Spray program and rain'),
+        cmE('div', { style: Object.assign({}, small, { marginBottom: 6 }) }, 'Orange: 0.5 in of rain or more in the 3 days after the spray, so check whether it needs to go on again. Heat units counted since the previous spray.'),
+        cmE('table', { style: { borderCollapse: 'collapse', width: '100%', minWidth: 620 } },
+          cmE('thead', null, cmE('tr', null, ['#', 'Date', 'Stage', 'For', 'Days since last', 'GDD since last', 'Rain next 3 days'].map(function (h, i) { return cmE('th', { key: h, style: i > 3 ? th : L(th) }, h); }))),
+          cmE('tbody', null, cmSprayCheck(D.sprays, wx.days).reverse().map(function (r) {
+            return cmE('tr', { key: r.date + r.spray, title: r.products || '' }, cmE('td', { style: L(td) }, r.spray), cmE('td', { style: L(td) }, r.date), cmE('td', { style: L(td) }, r.stage || ''), cmE('td', { style: L(Object.assign({}, td, { whiteSpace: 'normal' })) }, r.reason || ''),
+              cmE('td', { style: td }, r.gap == null ? '' : r.gap), cmE('td', { style: td }, r.heat == null ? '' : r1(r.heat, 0)),
+              cmE('td', { style: Object.assign({}, td, { color: r.washoff ? C.orange : C.text }) }, r.rain3 == null ? 'no data yet' : r1(r.rain3, 2) + '"'));
+          })))) : null,
       /* grower tons */
       vy !== 'Tystrya Estate' ? cmE('div', { style: card },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, vy + ': fruit received by vintage'),
@@ -316,6 +344,7 @@
   window.cmHarvestHistory = cmHarvestHistory;
   window.cmProjectRipe = cmProjectRipe;
   window.cmCropCheck = cmCropCheck;
+  window.cmSprayCheck = cmSprayCheck;
   window.cmVineyardHeat = heatAtPick;
   window.cmWeatherFor = cmWeatherFor;
   window.CmVineyard = CmVineyard;
