@@ -14,7 +14,7 @@
   var JSQR = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
   var ORG_DEFAULT = '762fc809-0341-4ee2-834f-16e707181ea7';
   var CATS = [['issue', 'Issue or problem'], ['barrel', 'Barrel or tank photo'], ['lab', 'Lab report'], ['invoice', 'Invoice or receipt'], ['compliance', 'Compliance (TTB, OLCC)'], ['contract', 'Contract or agreement'], ['vineyard', 'Vineyard'], ['bottling', 'Bottling or label'], ['general', 'Other']];
-  var LINK_TYPES = [['barrel', 'Barrel'], ['lot', 'Lot'], ['vessel', 'Tank, keg or vessel'], ['fermenter', 'Fermenter'], ['facility', 'Facility'], ['work_order', 'Work order']];
+  var LINK_TYPES = [['barrel', 'Barrel'], ['lot', 'Lot'], ['vessel', 'Tank, keg or vessel'], ['fermenter', 'Fermenter'], ['facility', 'Facility'], ['work_order', 'Work order'], ['vineyard', 'Vineyard']];
 
   /* ---------- pure helpers ---------- */
   function linkKey(l) { return [l.link_type, l.vintage || '', l.ref || ''].join('|'); }

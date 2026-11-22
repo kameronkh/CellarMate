@@ -210,6 +210,23 @@ window.cmSmoke = async function(opts) {
   const ins = await supa.schema('cellarmate').from('berry_samples').insert({organization_id: orgId, vintage: 2026, sampled_on: '2026-09-01', vineyard: 'Tystrya Estate', block: 7, brix: 21.4, ph: 3.31, note: 'SMOKE TEST'}).select('id').single();
   const del = ins.data ? await supa.schema('cellarmate').from('berry_samples').delete().eq('id', ins.data.id).select('id') : null;
   ok('berry sample saves and deletes', !ins.error && del && !del.error && del.data.length === 1, ins.error ? ins.error.message : '');
+  /* 1q. vineyard records from the Drive folder */
+  ok('vineyard records module loaded', !!(window.CmVineRecords && window.cmSprayYears && window.cmClusterTons));
+  ok('cluster count estimate: vines x clusters x grams', Math.abs(cmClusterTons(1000, 20, 113.4) - 2.5) < 0.001, cmClusterTons(1000, 20, 113.4));
+  const vr = await Promise.all(['vineyard_sprays','spray_products','vineyard_activities','vineyard_rows','tissue_tests'].map(function(t) { return cmFetch(t); }));
+  const syr = cmSprayYears(vr[0]); const yr = function(y) { return syr.filter(function(o) { return o.year === y; })[0] || {}; };
+  ok('spray history 2017 to 2026 on file', [2017,2018,2019,2020,2021,2022,2023,2024,2025,2026].every(function(y) { return yr(y).sprays > 0; }), syr.map(function(o) { return o.year + ':' + o.sprays; }).join(' '));
+  ok('2025 sprays from the pesticide use report (11, Apr 15 to Jul 28)', yr(2025).sprays === 11 && yr(2025).first === '2025-04-15' && yr(2025).last === '2025-07-28', JSON.stringify({n: yr(2025).sprays, f: yr(2025).first, l: yr(2025).last}));
+  ok('spray products with REI and PHI', vr[1].length >= 30 && vr[1].some(function(p) { return /microthiol/i.test(p.name) && Number(p.rei_hours) === 24; }), vr[1].length);
+  const iyr = cmIrrigationYears(vr[2]);
+  ok('irrigation years on file (2017 to 2020, 2024, 2025)', iyr.length >= 6 && iyr.some(function(o) { return o.year === 2025 && o.events >= 20; }), iyr.map(function(o) { return o.year + ':' + o.events; }).join(' '));
+  const vines = vr[3].reduce(function(a, r) { return a + (Number(r.vines) || 0); }, 0);
+  ok('vineyard map rows add up to 20,625 vines in 13 blocks', vines === 20625 && cmUniq(vr[3].map(function(r) { return r.block; })).length === 13, vines);
+  ok('leaf tissue at veraison 2017 to 2025', cmUniq(vr[4].map(function(t) { return t.year; })).length >= 8, cmUniq(vr[4].map(function(t) { return t.year; })).sort().join(','));
+  const vf = await cmFiles.forRef('vineyard', null, 'Tystrya Estate');
+  ok('55 original vineyard files stored and linked', vf.length >= 55, vf.length);
+  const sg = await supa.storage.from('cellar-files').createSignedUrl(vf[0].path, 60);
+  ok('a stored vineyard file opens', !!(sg.data && sg.data.signedUrl), sg.error ? sg.error.message : '');
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -246,6 +263,8 @@ window.cmSmoke = async function(opts) {
   if (vb) { vb.click(); for (let i = 0; i < 20 && !/Spray program and rain/.test(document.body.innerText); i++) await wait(1000); }
   ok('Vine Blocks shows weather and harvest', /Heat units and rain/.test(document.body.innerText) && /Estate blocks: tons per acre/.test(document.body.innerText) && /Spray program and rain/.test(document.body.innerText) && !bad(), bad() || (/Fetching weather/.test(document.body.innerText) ? 'weather still loading' : 'spray card missing'));
   for (let i = 0; i < 40; i++) { const tx = document.body.innerText; if (/index started|index never started/.test(tx) && !/Loading weather and block history/.test(tx)) break; await wait(1000); }
+  for (let i = 0; i < 20 && !/Original files/.test(document.body.innerText); i++) await wait(1000);
+  ok('Vine Blocks shows vineyard records and original files', /Vineyard records/.test(document.body.innerText) && /Spray history/.test(document.body.innerText) && /Original files/.test(document.body.innerText) && !bad(), bad());
   ok('Vine Blocks shows mildew pressure, ripeness samples and harvest watch', /Powdery mildew pressure \(Gubler-Thomas index\)/.test(document.body.innerText) && /Ripeness samples/.test(document.body.innerText) && /Harvest watch: Estate/.test(document.body.innerText) && /index started/.test(document.body.innerText) && !bad(), bad() || document.body.innerText.slice(document.body.innerText.indexOf('Powdery'), document.body.innerText.indexOf('Powdery') + 200));
   /* 4. layout at this width */
   const over = Array.from(document.querySelectorAll('button,input,select,table')).filter(function(e) { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 2 && !e.closest('[style*=overflow-x]'); }).length;

@@ -8,7 +8,8 @@
    3. Crop estimates (harvest_estimates): estimate against target tons per acre, against history,
       against the actual harvest, and a projected ripe date against the target pick window.
    4. Spray program against rain (wash-off) and heat units between sprays (vineyard_sprays).
-   Mildew pressure (mildew.js) and ripeness samples (ripeness.js) render inside this screen.
+   Mildew pressure (mildew.js), ripeness samples (ripeness.js) and vineyard records (vinerecords.js)
+   render inside this screen.
    Pure helpers are on window for the smoke tests: cmGddSeason, cmHarvestHistory, cmProjectRipe,
    cmCropCheck, cmSprayCheck. */
 (function () {
@@ -125,9 +126,9 @@
      (0.5 in or more may wash it off), and heat units between sprays. */
   function cmSprayCheck(sprays, days) {
     var byDate = {}; (days || []).forEach(function (d) { byDate[d.date] = d; });
-    var list = (sprays || []).filter(function (s) { return s.date; }).slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    var list = (sprays || []).filter(function (s) { return s.date && !s.skipped; }).slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
     return list.map(function (s, i) {
-      var prev = list[i - 1], rain = 0, heat = null, have = 0;
+      var prev = list[i - 1] && String(list[i - 1].date).slice(0, 4) === String(s.date).slice(0, 4) ? list[i - 1] : null, rain = 0, heat = null, have = 0;
       for (var k = 1; k <= 3; k++) { var d = byDate[addDays(s.date, k)]; if (d) { rain += num(d.p) || 0; have++; } }
       if (prev) { heat = 0; for (var x = addDays(prev.date, 1); x <= s.date; x = addDays(x, 1)) { if (byDate[x]) heat += gddOf(byDate[x]); } }
       var gap = prev ? Math.round((new Date(s.date) - new Date(prev.date)) / 864e5) : null;
@@ -314,7 +315,7 @@
         cmE('div', { style: Object.assign({}, small, { marginBottom: 6 }) }, 'Orange: 0.5 in of rain or more in the 3 days after the spray, so check whether it needs to go on again. Heat units counted since the previous spray.'),
         cmE('table', { style: { borderCollapse: 'collapse', width: '100%', minWidth: 620 } },
           cmE('thead', null, cmE('tr', null, ['#', 'Date', 'Stage', 'For', 'Days since last', 'GDD since last', 'Rain next 3 days'].map(function (h, i) { return cmE('th', { key: h, style: i > 3 ? th : L(th) }, h); }))),
-          cmE('tbody', null, cmSprayCheck(D.sprays, wx.days).reverse().map(function (r) {
+          cmE('tbody', null, cmSprayCheck(D.sprays, wx.days).filter(function (r) { return showYears.indexOf(+String(r.date).slice(0, 4)) >= 0; }).reverse().map(function (r) {
             return cmE('tr', { key: r.date + r.spray, title: r.products || '' }, cmE('td', { style: L(td) }, r.spray), cmE('td', { style: L(td) }, r.date), cmE('td', { style: L(td) }, r.stage || ''), cmE('td', { style: L(Object.assign({}, td, { whiteSpace: 'normal' })) }, r.reason || ''),
               cmE('td', { style: td }, r.gap == null ? '' : r.gap), cmE('td', { style: td }, r.heat == null ? '' : r1(r.heat, 0)),
               cmE('td', { style: Object.assign({}, td, { color: r.washoff ? C.orange : C.text }) }, r.rain3 == null ? 'no data yet' : r1(r.rain3, 2) + '"'));
@@ -345,7 +346,10 @@
             cmE('div', { style: { display: 'flex', gap: 8, fontSize: 12 } }, cmE('b', { style: { flex: 1 } }, r.e.vintage + ' · ' + (r.e.block ? 'Block ' + r.e.block : 'Whole vineyard') + ' · ' + r1(r.e.est_tons, 2) + ' t' + (r.chk.tpa ? ' (' + r1(r.chk.tpa, 2) + ' t/ac)' : '')), cmE('button', { onClick: function () { delEst(r.e.id); }, style: Object.assign({}, btn, { padding: '2px 8px' }) }, 'Delete')),
             r.chk.flags.map(function (f, i) { return cmE('div', { key: i, style: { fontSize: 12, color: flagC[f.level] } }, f.text); }),
             !r.chk.flags.length ? cmE('div', { style: small }, 'Add a target t/ac or acres to check this estimate.') : null);
-        }) : cmE('div', { style: Object.assign({}, small, { marginTop: 6 }) }, 'No estimates for ' + vy + ' yet.')));
+        }) : cmE('div', { style: Object.assign({}, small, { marginTop: 6 }) }, 'No estimates for ' + vy + ' yet.')),
+
+      /* vineyard records and original files (vinerecords.js) */
+      vy === 'Tystrya Estate' && window.CmVineRecords ? cmE(window.CmVineRecords, { site: site, onSaved: reload }) : null);
   }
 
   window.cmGddSeason = cmGddSeason;
