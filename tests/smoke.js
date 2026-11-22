@@ -238,6 +238,23 @@ window.cmSmoke = async function(opts) {
   ok('usage meter reads records, files and acres', us.records > 1000 && us.files >= 55 && Number(us.acres) > 14 && us.weather_days > 3000, JSON.stringify(us));
   const bas = await supa.schema('cellarmate').rpc('can_store_files', {o: '6ec5f09c-a000-4a40-b5dd-3652aa757963'});
   ok('a Basic account cannot store files', bas.data === false, JSON.stringify(bas));
+  /* 1s. vineyard schedule, owner access and owner portal */
+  ok('owner module loaded', !!(window.CmVineyardTeam && window.CmOwnerPortal && window.cmScheduleSplit && window.cmOwnerFeed));
+  const sch = cmScheduleSplit([{id:1, planned_on:'2030-06-01'}, {id:2, planned_on:'2030-06-10'}, {id:3, planned_on:'2030-07-30'}, {id:4, planned_on:'2030-05-20', done_on:'2030-05-25'}, {id:5}], '2030-06-05');
+  ok('schedule splits past due, next two weeks, later and done', sch.overdue.length === 1 && sch.soon.length === 2 && sch.later.length === 1 && sch.done.length === 1, JSON.stringify({o: sch.overdue.length, s: sch.soon.length, l: sch.later.length, d: sch.done.length}));
+  const feed = cmOwnerFeed({tasks: [{done_on:'2030-06-01', kind:'mow', title:'Mow rows'}], sprays: [{date:'2030-06-03', reason:'Powdery mildew', products_rate_per_acre:'Sulfur 4 lb'}, {date:null, skipped:true}], acts: [{date:'2030-05-01', kind:'irrigation', amount:1, unit:'gal/vine'}]}, '2030-06-05', 60);
+  ok('owner feed merges work, sprays and irrigation, newest first, skips skipped sprays', feed.length === 3 && feed[0].kind === 'Spray' && feed[2].kind === 'Irrigation', JSON.stringify(feed.map(function(f) { return f.kind; })));
+  const vys = await supa.schema('cellarmate').from('vineyards').select('id,name,organization_id').eq('name', 'Tystrya Estate').single();
+  const dbv = supa.schema('cellarmate');
+  const tIns = await dbv.from('vineyard_tasks').insert({organization_id: vys.data.organization_id, vineyard: 'Tystrya Estate', kind: 'mow', title: 'SMOKE TEST mow', planned_on: new Date().toISOString().slice(0, 10)}).select('id').single();
+  const tDone = tIns.data ? await dbv.from('vineyard_tasks').update({done_on: new Date().toISOString().slice(0, 10)}).eq('id', tIns.data.id).select('done_on') : {};
+  const tDel = tIns.data ? await dbv.from('vineyard_tasks').delete().eq('id', tIns.data.id).select('id') : {};
+  ok('schedule task adds, finishes and deletes', !tIns.error && tDone.data && tDone.data[0].done_on && tDel.data && tDel.data.length === 1, tIns.error ? tIns.error.message : '');
+  const mIns = await dbv.from('vineyard_members').insert({organization_id: vys.data.organization_id, vineyard_id: vys.data.id, email: 'smoke.owner@example.com', role: 'owner', added_by: 'smoke test'}).select('id').single();
+  const mDel = mIns.data ? await dbv.from('vineyard_members').delete().eq('id', mIns.data.id).select('id') : {};
+  ok('owner access adds and removes', !mIns.error && mDel.data && mDel.data.length === 1, mIns.error ? mIns.error.message : '');
+  const myv = await dbv.rpc('my_vineyards');
+  ok('my vineyards answers for this login', !myv.error && Array.isArray(myv.data), myv.error ? myv.error.message : '');
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -276,6 +293,11 @@ window.cmSmoke = async function(opts) {
   for (let i = 0; i < 40; i++) { const tx = document.body.innerText; if (/index started|index never started/.test(tx) && !/Loading weather and block history/.test(tx)) break; await wait(1000); }
   for (let i = 0; i < 20 && !/Original files/.test(document.body.innerText); i++) await wait(1000);
   ok('Vine Blocks shows vineyard records and original files', /Vineyard records/.test(document.body.innerText) && /Spray history/.test(document.body.innerText) && /Original files/.test(document.body.innerText) && !bad(), bad());
+  for (let i = 0; i < 15 && !/Schedule and owner access/.test(document.body.innerText); i++) await wait(1000);
+  const pvb = Array.from(document.querySelectorAll('button')).filter(function(b) { return b.innerText.trim() === 'Preview what the owner sees'; })[0];
+  if (pvb) { pvb.click(); for (let i = 0; i < 20 && !/Records and files \(/.test(document.body.innerText); i++) await wait(1000); }
+  ok('Vine Blocks shows the schedule, owner access and the owner preview', /Schedule and owner access/.test(document.body.innerText) && /vineyard owner view/i.test(document.body.innerText) && /Done lately/.test(document.body.innerText) && /Records and files \(/.test(document.body.innerText) && !bad(), bad());
+  if (pvb) { const cl = Array.from(document.querySelectorAll('button')).filter(function(b) { return b.innerText.trim() === 'Close preview'; })[0]; if (cl) cl.click(); await wait(500); }
   ok('Vine Blocks shows mildew pressure, ripeness samples and harvest watch', /Powdery mildew pressure \(Gubler-Thomas index\)/.test(document.body.innerText) && /Ripeness samples/.test(document.body.innerText) && /Harvest watch: Estate/.test(document.body.innerText) && /index started/.test(document.body.innerText) && !bad(), bad() || document.body.innerText.slice(document.body.innerText.indexOf('Powdery'), document.body.innerText.indexOf('Powdery') + 200));
   /* 4. layout at this width */
   const over = Array.from(document.querySelectorAll('button,input,select,table')).filter(function(e) { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 2 && !e.closest('[style*=overflow-x]'); }).length;

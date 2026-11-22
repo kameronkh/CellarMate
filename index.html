@@ -30,6 +30,7 @@
   <script src="/modules/ripeness.js"></script>
   <script src="/modules/vinerecords.js"></script>
   <script src="/modules/plan.js"></script>
+  <script src="/modules/owner.js"></script>
     <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0f1117; font-family: 'Inter', system-ui, sans-serif; }
@@ -5900,7 +5901,7 @@ function App() {
   if (!authSession) {
     return React.createElement(LoginScreen, { onLogin: () => {}, initialError: recoveryError });
   }
-  if (authSession._noAccess) { return React.createElement(CmNoAccess, {email: authSession.email, onLogout: handleLogout}); }
+  if (authSession._noAccess) { return window.CmOwnerPortal ? React.createElement(window.CmOwnerPortal, {email: authSession.email, onLogout: handleLogout, Fallback: CmNoAccess}) : React.createElement(CmNoAccess, {email: authSession.email, onLogout: handleLogout}); }
   if (authSession.role === 'super_admin' && !authSession._adminView) {
     return React.createElement(SuperAdminScreen, {
       wineries, accounts: [], setAccounts: ()=>{},

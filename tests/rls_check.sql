@@ -22,3 +22,29 @@ begin
   begin insert into storage.objects (bucket_id, name, owner) values ('cellar-files', tystrya || '/rls.txt', auth.uid()); r := r || ' storage_write_tystrya=ALLOWED'; exception when others then r := r || ' storage_write_tystrya=denied'; end;
   raise exception 'RESULT writes_into_tystrya=% visible=%', w, r;
 end $$;
+
+-- Vineyard owner isolation check (read-only, rolled back by the RAISE).
+-- A login with no winery that is invited to one vineyard. Expected: vineyards=1, its sprays,
+-- blocks, weather and files visible; tasks=1 (hidden and other-vineyard tasks not visible);
+-- barrels=0, lab=0, picks=0, members=0; owner_write=denied.
+do $$
+declare r text := ''; n int; vid bigint; org uuid := '762fc809-0341-4ee2-834f-16e707181ea7';
+begin
+  select id into vid from cellarmate.vineyards where name = 'Tystrya Estate' and organization_id = org;
+  insert into cellarmate.vineyard_members (organization_id, vineyard_id, email, role) values (org, vid, 'owner.test@example.com', 'owner');
+  insert into cellarmate.vineyard_tasks (organization_id, vineyard, title, kind, planned_on, owner_visible) values
+    (org, 'Tystrya Estate', 'Visible task', 'mow', current_date, true), (org, 'Tystrya Estate', 'Hidden task', 'other', current_date, false), (org, 'Stiling', 'Other vineyard task', 'mow', current_date, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid(), 'role', 'authenticated', 'email', 'owner.test@example.com')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from cellarmate.vineyards; r := r || 'vineyards=' || n;
+  select count(*) into n from cellarmate.vineyard_sprays; r := r || ' sprays=' || n;
+  select count(*) into n from cellarmate.weather_daily; r := r || ' weather=' || n;
+  select count(*) into n from cellarmate.attachments; r := r || ' files=' || n;
+  select count(*) into n from cellarmate.vineyard_tasks; r := r || ' tasks=' || n;
+  select count(*) into n from cellarmate.barrels; r := r || ' barrels=' || n;
+  select count(*) into n from cellarmate.lab_results; r := r || ' lab=' || n;
+  select count(*) into n from cellarmate.picks; r := r || ' picks=' || n;
+  select count(*) into n from cellarmate.vineyard_members; r := r || ' members=' || n;
+  begin insert into cellarmate.vineyard_tasks (organization_id, vineyard, title) values (org, 'Tystrya Estate', 'owner write'); r := r || ' owner_write=ALLOWED'; exception when others then r := r || ' owner_write=denied'; end;
+  raise exception 'RESULT %', r;
+end $$;
