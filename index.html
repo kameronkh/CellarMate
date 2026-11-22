@@ -4085,7 +4085,9 @@ async function cmStatusRows() {
       ph:cmNum(r.ph_latest), rise:null, malic:r.malic_g_l_text, mlf:r.mlf_status || '', last:cmNum(r.last_free_so2_ppm), lastd:r.last_free_so2_date, est:cmNum(r.est_free_so2_now),
       target:cmNum(r.target_free_so2_ppm), g:cmNum(r.so2_grams), tab:r.tablets, tart:r.tartaric, action:r.action || '', group:r.action_group || '', cat:cmCat(r.action_group)});
   });
-  rows.forEach(function(r) { r.raw = r.b; r.b = cmCode(r); r.col = cmRowCol(r); }); cmApplyActions(rows, acts); rows.sort(function(x, y) { return (y.v - x.v) || (cmNat(x.b) - cmNat(y.b)) || (x.b < y.b ? -1 : 1); });
+  const lit26 = {}; a.forEach(function(x) { if (x.liters != null) lit26[x.barrel] = Number(x.liters); });
+  rows.forEach(function(r) { r.raw = r.b; r.b = cmCode(r); r.col = cmRowCol(r); r.L = r.v === 2026 && lit26[r.raw] != null ? lit26[r.raw] : 225; }); cmApplyActions(rows, acts);
+  rows.forEach(function(r) { if (r.presumedOn) r.est = cmPresumedNow(r); }); rows.sort(function(x, y) { return (y.v - x.v) || (cmNat(x.b) - cmNat(y.b)) || (x.b < y.b ? -1 : 1); });
   return rows;
 }
 const CM_STATUS_COLS = [['b','Barrel'],['v','Vintage'],['var','Varietal'],['lot','Lot / vineyard'],['who','Owner / location'],['ph','pH'],['rise','pH rise'],['malic','Malic'],['mlf','MLF'],
@@ -4716,17 +4718,32 @@ function cmExtraReport(rep, rows, X) {
 
 /* == CELLARMATE MODULE 4: work log, data import, old screens fed from the cellar data == */
 function cmActLabel(t) { return {so2:'SO2 added', ml:'ML inoculated', free_so2:'Free SO2 reading', malic:'Malic reading', ph:'pH reading', note:'Note'}[t] || t; }
+const CM_SO2_FREE_SHARE = 1.0;
+const CM_SO2_DECAY_PPM_DAY = 0.3;
+function cmTabletsFor(g) { let best = null; for (let n5 = 0; n5 <= Math.ceil(g / 5); n5++) { const rem = g - 5 * n5; const n2 = rem > 0 ? Math.ceil(rem / 2) : 0; const tot = 5 * n5 + 2 * n2; const cnt = n5 + n2; if (!best || tot < best.tot || (tot === best.tot && cnt < best.cnt)) best = {tot:tot, cnt:cnt, n5:n5, n2:n2}; } if (!best) return {g:0, tab:''}; return {g:best.tot, tab:[best.n5 ? best.n5 + String.fromCharCode(215) + '5' : '', best.n2 ? best.n2 + String.fromCharCode(215) + '2' : ''].filter(Boolean).join(' + ')}; }
+function cmTargetFor(r) { if (r.ph == null) return r.target; const white = ['Chardonnay', CM_ROSE, 'Albari' + String.fromCharCode(241) + 'o', 'White'].indexOf(r.var) !== -1; const mol = white ? 0.8 : 0.5; return Math.round(Math.min(50, mol * (1 + Math.pow(10, r.ph - 1.81)))); }
+function cmPresumedNow(r) { if (!r.presumedOn) return r.est; const days = Math.max(0, cmDays(r.presumedOn, today())); return Math.max(0, Math.round(r.presumedStart - CM_SO2_DECAY_PPM_DAY * days)); }
 function cmApplyActions(rows, acts) {
   if (!acts || !acts.length) return;
   const map = {}; rows.forEach(function(r) { map[r.v + '|' + r.raw] = r; });
   acts.slice().sort(function(a, b) { const x = a.done_on || '', y = b.done_on || ''; return x < y ? -1 : x > y ? 1 : a.id - b.id; }).forEach(function(a) {
     const r = map[Number(a.vintage) + '|' + a.barrel]; if (!r) return;
     const d = a.done_on || '';
-    if (a.action_type === 'so2') { r.action = 'SO2 added ' + d + (a.grams != null ? ' (' + Number(a.grams) + ' g)' : '') + ': test free SO2 in about a week'; r.group = 'Done: SO2 added, test free SO2 next'; r.cat = 'ok'; r.g = null; r.tab = null; }
+    if (a.action_type === 'so2') {
+      const L = r.L || 225; const base = r.est != null ? cmPresumedNow(r) : (r.last != null ? r.last : 0);
+      r.presumedStart = Math.round(base + (a.grams != null ? Number(a.grams) * 1000 / L * CM_SO2_FREE_SHARE : 0)); r.presumedOn = d; r.presumed = true; r.est = cmPresumedNow(r);
+      r.action = 'SO2 added ' + d + (a.grams != null ? ' (' + Number(a.grams) + ' g)' : '') + ': presumed free SO2 about ' + r.est + ' ppm' + (r.target != null ? ' (target ' + r.target + ')' : '') + ' until tested. Test in about a week.';
+      r.group = 'Done: SO2 added, test free SO2 next'; r.cat = 'ok'; r.g = null; r.tab = null; }
     else if (a.action_type === 'ml') { r.mlf = 'In MLF (inoculated ' + d + ')'; r.action = 'ML inoculated ' + d + ': hold SO2, keep 66-70 F, re-test malic'; r.group = 'Hold SO2 (in MLF)'; r.cat = 'hold'; r.g = null; r.tab = null; }
-    else if (a.action_type === 'ph' && a.value != null) { r.ph = Number(a.value); }
+    else if (a.action_type === 'ph' && a.value != null) { r.ph = Number(a.value); r.target = cmTargetFor(r); }
     else if (a.action_type === 'malic' && a.value != null) { r.malic = String(Number(a.value)); }
-    else if (a.action_type === 'free_so2' && a.value != null) { r.last = Number(a.value); r.lastd = d; r.est = Number(a.value); }
+    else if (a.action_type === 'free_so2' && a.value != null) {
+      r.last = Number(a.value); r.lastd = d; r.est = Number(a.value); r.presumed = false; r.presumedOn = null;
+      if (r.cat !== 'hold' && r.cat !== 'decide' && r.target != null) {
+        const need = Math.ceil(Math.max(0, r.target - r.last) * (r.L || 225) / 1000 / CM_SO2_FREE_SHARE);
+        if (r.target - r.last > 3 && need > 0) { const t = cmTabletsFor(need); r.g = t.g; r.tab = t.tab; r.cat = 'add'; r.group = 'Add SO2 now (below target after test)'; r.action = 'Free SO2 ' + r.last + ' ppm on ' + d + ', target ' + r.target + ': add ' + t.g + ' g (' + t.tab + ')'; }
+        else { r.g = null; r.tab = null; r.cat = 'ok'; r.group = 'At target after test'; r.action = 'Free SO2 ' + r.last + ' ppm on ' + d + ': at target (' + r.target + ')'; }
+      } }
   });
 }
 function cmTartRec(t) {
@@ -4927,7 +4944,7 @@ function CmHealth(props) {
         cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}},
           cmE('div', {style:{minWidth:0}}, cmDot(r.col), cmE('span', {style:{fontWeight:800, fontSize:14}}, r.b), cmE('span', {style:{fontSize:12, color:C.textMuted, marginLeft:8}}, r.var)),
           r.g != null ? cmE('span', {style:{fontSize:12, fontWeight:800, color:C.red, whiteSpace:'nowrap'}}, r.g + ' g' + (r.tab ? ' (' + r.tab + ')' : '')) : null),
-        cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, 'pH ' + (r.ph == null ? 'not read' : r.ph.toFixed(2)) + CM_MID + 'malic ' + (r.malic == null ? 'not tested' : r.malic) + CM_MID + (r.mlf || 'MLF not recorded') + (r.est != null ? CM_MID + 'free SO2 about ' + r.est : '') + (r.target != null ? CM_MID + 'target ' + r.target : '')),
+        cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, 'pH ' + (r.ph == null ? 'not read' : r.ph.toFixed(2)) + CM_MID + 'malic ' + (r.malic == null ? 'not tested' : r.malic) + CM_MID + (r.mlf || 'MLF not recorded') + (r.est != null ? CM_MID + (r.presumed ? 'presumed free SO2 about ' : 'free SO2 about ') + r.est : '') + (r.target != null ? CM_MID + 'target ' + r.target : '')),
         cmE('div', {style:{fontSize:12, fontWeight:700, color:CM_CAT_COLOR[r.cat], marginTop:3}}, r.action));
     }));
 }
