@@ -4,6 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CellarMate — Tystrya Estate</title>
+  <link rel='manifest' href='/manifest.json' />
+  <meta name='theme-color' content='#7B1E3A' />
+  <meta name='apple-mobile-web-app-capable' content='yes' />
+  <meta name='mobile-web-app-capable' content='yes' />
+  <meta name='apple-mobile-web-app-title' content='CellarMate' />
+  <link rel='apple-touch-icon' href='/icon-192.png' />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -832,7 +838,7 @@ const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const INITIAL_HASH = window.location.hash || '';
 const INITIAL_RECOVERY = INITIAL_HASH.indexOf('type=recovery') !== -1;
 const INITIAL_LINK_ERROR = INITIAL_HASH.indexOf('error=') !== -1;
-const supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+const supa = window.supabase.createClient(SUPA_URL, SUPA_KEY, {global: {fetch: function(u, o) { return window.cmOfflineFetch ? window.cmOfflineFetch(u, o) : fetch(u, o); }}});
 
 function simpleHash(str) {
   let h = 5381;
@@ -4215,7 +4221,7 @@ function CmReportsScreen(props) {
     const shown = dq ? all.filter(function(r) { return cols.some(function(c) { return String(r[c] == null ? '' : r[c]).toLowerCase().indexOf(dq.toLowerCase()) !== -1; }); }) : all;
     const label = (CM_TABLE_LIST.filter(function(t) { return t[0] === tbl; })[0] || [tbl, tbl])[1];
     const clean = function(rs, cs) { return rs.map(function(r) { const o = {}; cs.forEach(function(c) { o[c] = r[c]; }); return o; }); };
-    return cmE(React.Fragment, null, tabs, errBox,
+    return cmE(React.Fragment, null, tabs, errBox, cmE(CmOfflinePanel, null),
       cmE('div', {style:{marginBottom:10}}, cmE('label', {style:cmLbl}, 'Table'), cmE('select', {value:tbl, onChange:function(e){ setTbl(e.target.value); setDq(''); }, style:cmSel}, CM_TABLE_LIST.map(function(t) { return cmE('option', {key:t[0], value:t[0]}, t[1]); }))),
       cmE('div', {style:{marginBottom:10}}, cmE('input', {value:dq, onChange:function(e){ setDq(e.target.value); }, placeholder:'Search this table', style:cmSel})),
       cmE('div', {style:{display:'flex', gap:8, marginBottom:8}},
@@ -4399,6 +4405,7 @@ function CmLotFilter(props) {
 let CM_ORG = null;
 async function cmOrg() {
   if (CM_ORG) return CM_ORG;
+  if (CM_ME && CM_ME.org_id) { CM_ORG = CM_ME.org_id; return CM_ORG; }
   const r = await supa.schema('cellarmate').from('profiles').select('org_id').limit(1);
   if (r.error || !r.data || !r.data.length) throw new Error('No winery profile found for this login.');
   CM_ORG = r.data[0].org_id; return CM_ORG;
@@ -5834,6 +5841,211 @@ function CmWines() {
     cards.length ? cards : cmNote('No vineyard blocks on file.'));
 }
 
+/* == CELLARMATE MODULE 14: offline use (device copy of the data, change queue, sync) == */
+const CM_NET = {queue:[], failed:[], savedAt:null, syncing:false, synced:0, listeners:[], loaded:false};
+const CM_READ_RPC = ['my_access', 'role_defaults', 'admin_users', 'admin_invites'];
+function cmNetEmit() { CM_NET.listeners.slice().forEach(function(f) { try { f(); } catch (e) {} }); }
+function cmForcedOffline() { try { return localStorage.getItem('cm_force_offline') === '1'; } catch (e) { return false; } }
+function cmIsOnline() { return navigator.onLine !== false && !cmForcedOffline(); }
+let CM_IDB = null;
+function cmIdb() { if (!CM_IDB) CM_IDB = new Promise(function(res, rej) { const r = indexedDB.open('cellarmate-offline', 1); r.onupgradeneeded = function() { r.result.createObjectStore('kv'); }; r.onsuccess = function() { res(r.result); }; r.onerror = function() { rej(r.error); }; }); return CM_IDB; }
+async function cmKvGet(k) { const db = await cmIdb(); return new Promise(function(res, rej) { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = function() { res(q.result); }; q.onerror = function() { rej(q.error); }; }); }
+async function cmKvSet(k, v) { const db = await cmIdb(); return new Promise(function(res, rej) { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = function() { res(); }; t.onerror = function() { rej(t.error); }; }); }
+async function cmKvKeys() { const db = await cmIdb(); return new Promise(function(res) { const q = db.transaction('kv').objectStore('kv').getAllKeys(); q.onsuccess = function() { res(q.result || []); }; q.onerror = function() { res([]); }; }); }
+async function cmNetSave() { await cmKvSet('queue', CM_NET.queue); await cmKvSet('failed', CM_NET.failed); }
+function cmJwtSub(h) { try { const t = String(h.get('Authorization') || '').split(' ').pop(); const p = JSON.parse(atob(t.split('.')[1].split('-').join('+').split('_').join('/'))); return p.sub || null; } catch (e) { return null; } }
+function cmNetUser(h) { const s = cmJwtSub(h); if (s) { try { localStorage.setItem('cm_last_user', s); } catch (e) {} return s; } try { return localStorage.getItem('cm_last_user') || 'anon'; } catch (e) { return 'anon'; } }
+function cmJson(status, obj) { return new Response(obj == null ? null : JSON.stringify(obj), {status:status, headers:{'Content-Type':'application/json'}}); }
+function cmIsTemp(v) { const n = Number(v); return !isNaN(n) && n < -1000000; }
+function cmSubNum(str, from, to) {
+  str = String(str); const f = String(from); let out = '', i = 0;
+  while (true) { const j = str.indexOf(f, i); if (j === -1) { out += str.slice(i); break; }
+    const before = j > 0 ? str.charAt(j - 1) : ''; const after = str.charAt(j + f.length);
+    const digit = function(c) { return c >= '0' && c <= '9'; };
+    if (!digit(before) && !digit(after)) { out += str.slice(i, j) + String(to); } else { out += str.slice(i, j + f.length); }
+    i = j + f.length; }
+  return out;
+}
+async function cmOfflineFetch(input, init) {
+  init = init || {};
+  const url = typeof input === 'string' ? input : input.url;
+  if (url.indexOf('/rest/v1/') === -1) return fetch(input, init);
+  const method = String(init.method || (input && input.method) || 'GET').toUpperCase();
+  const h = new Headers(init.headers || {});
+  const user = cmNetUser(h);
+  const path = url.split('/rest/v1/')[1] || '';
+  const rpc = path.indexOf('rpc/') === 0 ? path.slice(4).split('?')[0] : '';
+  const body = typeof init.body === 'string' ? init.body : '';
+  const profile = h.get('Accept-Profile') || h.get('Content-Profile') || 'public';
+  if (method === 'GET' || method === 'HEAD' || CM_READ_RPC.indexOf(rpc) !== -1) {
+    const key = 'c|' + user + '|' + method + '|' + url + '|' + (method === 'GET' ? '' : body) + '|' + profile;
+    if (cmIsOnline()) {
+      try { const res = await fetch(input, init); if (res.ok) { const txt = await res.clone().text(); cmKvSet(key, {t:Date.now(), s:res.status, b:txt}).catch(function() {}); } return res; } catch (e) {}
+    }
+    const hit = await cmKvGet(key).catch(function() { return null; });
+    if (hit) return new Response(hit.b, {status:hit.s, headers:{'Content-Type':'application/json'}});
+    return cmJson(503, {message:'You are offline and this has not been saved on this device yet. Open it once while online, or use Save for offline under Reports > Data.'});
+  }
+  if (rpc) { if (cmIsOnline()) return fetch(input, init); return cmJson(503, {message:'This needs a connection. Try again when you are back online.'}); }
+  if (cmIsOnline()) { try { return await fetch(input, init); } catch (e) {} }
+  return cmQueueWrite(user, url, method, h, body, profile);
+}
+async function cmQueueWrite(user, url, method, h, body, profile) {
+  if (!CM_NET.loaded) await cmNetLoad();
+  const table = (url.split('/rest/v1/')[1] || '').split('?')[0];
+  const sp = new URL(url).searchParams; const filt = [];
+  sp.forEach(function(v, k) { if (v.indexOf('eq.') === 0) filt.push([k, v.slice(3)]); });
+  const match = function(r) { return filt.every(function(f) { return String(r[f[0]]) === f[1]; }); };
+  const headers = {}; h.forEach(function(v, k) { const kk = k.toLowerCase(); if (kk !== 'authorization' && kk !== 'apikey') headers[k] = v; });
+  const wantRows = String(h.get('Prefer') || '').indexOf('return=representation') !== -1;
+  let rows = [], patch = null;
+  if (method === 'POST') {
+    let parsed = null; try { parsed = JSON.parse(body); } catch (e) {}
+    const list = Array.isArray(parsed) ? parsed : [parsed || {}];
+    const base = -(Date.now() * 100);
+    rows = list.map(function(r, i) { return Object.assign({}, r, {id:r.id != null ? r.id : base - i, created_at:new Date().toISOString()}); });
+    CM_NET.queue.push({qid:Date.now() + '-' + Math.random(), user:user, url:url, method:method, headers:headers, body:body, table:table, temp:rows.map(function(r) { return r.id; }), at:Date.now()});
+  } else {
+    if (method === 'PATCH') { try { patch = JSON.parse(body); } catch (e) { patch = {}; } }
+    CM_NET.queue.filter(function(q) { return q.method === 'POST' && q.table === table && q.user === user; }).forEach(function(q) {
+      let arr; try { arr = JSON.parse(q.body); } catch (e) { return; } const single = !Array.isArray(arr); if (single) arr = [arr];
+      const keep = [], keepTemp = [];
+      arr.forEach(function(r, i) { const withId = Object.assign({}, r, {id:q.temp[i]}); if (match(withId)) { if (method === 'PATCH') { keep.push(Object.assign({}, r, patch)); keepTemp.push(q.temp[i]); } } else { keep.push(r); keepTemp.push(q.temp[i]); } });
+      q.body = JSON.stringify(single && keep.length === 1 ? keep[0] : keep); q.temp = keepTemp;
+    });
+    CM_NET.queue = CM_NET.queue.filter(function(q) { return !(q.method === 'POST' && q.temp && !q.temp.length); });
+    if (!filt.some(function(f) { return cmIsTemp(f[1]); })) CM_NET.queue.push({qid:Date.now() + '-' + Math.random(), user:user, url:url, method:method, headers:headers, body:body, table:table, at:Date.now()});
+  }
+  const changed = await cmApplyToCache(user, table, profile, method, match, rows, patch);
+  await cmNetSave(); cmNetEmit();
+  if (method === 'POST') return wantRows ? cmJson(201, rows) : cmJson(201, null);
+  return wantRows ? cmJson(200, changed) : new Response(null, {status:204});
+}
+async function cmApplyToCache(user, table, profile, method, match, rows, patch) {
+  const pre = 'c|' + user + '|GET|'; const changed = [];
+  const keys = await cmKvKeys();
+  for (const k of keys) {
+    if (typeof k !== 'string' || k.indexOf(pre) !== 0) continue;
+    const parts = k.slice(pre.length).split('|'); const u = parts[0];
+    if (parts[parts.length - 1] !== profile) continue;
+    if (((u.split('/rest/v1/')[1] || '').split('?')[0]) !== table) continue;
+    const sp = new URL(u).searchParams; let simple = true;
+    sp.forEach(function(v, kk) { if (['select', 'order', 'offset', 'limit'].indexOf(kk) === -1) simple = false; });
+    if (!simple || (sp.get('offset') && sp.get('offset') !== '0')) continue;
+    const hit = await cmKvGet(k); if (!hit) continue;
+    let arr; try { arr = JSON.parse(hit.b); } catch (e) { continue; } if (!Array.isArray(arr)) continue;
+    if (method === 'POST') arr = arr.concat(rows);
+    else if (method === 'PATCH') arr = arr.map(function(r) { if (match(r)) { const n = Object.assign({}, r, patch); changed.push(n); return n; } return r; });
+    else if (method === 'DELETE') arr = arr.filter(function(r) { return !match(r); });
+    await cmKvSet(k, {t:hit.t, s:hit.s, b:JSON.stringify(arr)});
+  }
+  return changed;
+}
+async function cmNetLoad() {
+  if (CM_NET.loaded) return;
+  try { CM_NET.queue = (await cmKvGet('queue')) || []; CM_NET.failed = (await cmKvGet('failed')) || []; } catch (e) {}
+  try { CM_NET.savedAt = Number(localStorage.getItem('cm_saved_at')) || null; } catch (e) {}
+  CM_NET.loaded = true; cmNetEmit();
+}
+async function cmSync() {
+  await cmNetLoad();
+  if (CM_NET.syncing || !cmIsOnline()) return;
+  let sess = null; try { sess = (await supa.auth.getSession()).data.session; } catch (e) {}
+  if (!sess) return;
+  const mine = CM_NET.queue.filter(function(q) { return q.user === sess.user.id; });
+  if (!mine.length) return;
+  CM_NET.syncing = true; cmNetEmit();
+  const idmap = {}; let done = 0;
+  for (const q of mine) {
+    let url = q.url, body = q.body;
+    Object.keys(idmap).forEach(function(t) { url = cmSubNum(url, t, idmap[t]); body = cmSubNum(body, t, idmap[t]); });
+    const hdr = Object.assign({}, q.headers, {Authorization:'Bearer ' + sess.access_token, apikey:SUPA_KEY});
+    if (q.method === 'POST') { const pk = Object.keys(hdr).filter(function(k) { return k.toLowerCase() === 'prefer'; })[0]; const parts = String(pk ? hdr[pk] : '').split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s && s.indexOf('return=') !== 0; }); if (pk) delete hdr[pk]; hdr.Prefer = parts.concat(['return=representation']).join(','); }
+    let res; try { res = await fetch(url, {method:q.method, headers:hdr, body:q.method === 'DELETE' ? undefined : body}); } catch (e) { break; }
+    if (res.ok) {
+      if (q.method === 'POST' && q.temp) { let out = []; try { out = await res.json(); } catch (e) {} (Array.isArray(out) ? out : [out]).forEach(function(r, i) { if (q.temp[i] != null && r && r.id != null) idmap[q.temp[i]] = r.id; }); }
+      done++;
+    } else {
+      let msg = ''; try { const j = await res.json(); msg = j.message || JSON.stringify(j); } catch (e) { msg = 'Error ' + res.status; }
+      CM_NET.failed.push({q:q, error:msg, at:Date.now()});
+    }
+    CM_NET.queue = CM_NET.queue.filter(function(x) { return x.qid !== q.qid; }); await cmNetSave();
+  }
+  CM_NET.syncing = false;
+  if (done) { CM_NET.synced = done; Object.keys(CM_CACHE).forEach(function(k) { delete CM_CACHE[k]; }); }
+  cmNetEmit();
+  if (!CM_NET.queue.length) cmPrefetchAll(true);
+}
+async function cmPrefetchAll(force) {
+  if (!cmIsOnline()) return;
+  let last = 0; try { last = Number(localStorage.getItem('cm_prefetch_at')) || 0; } catch (e) {}
+  if (!force && Date.now() - last < 20 * 60 * 1000) return;
+  try { localStorage.setItem('cm_prefetch_at', String(Date.now())); } catch (e) {}
+  const db = supa.schema('cellarmate');
+  const tables = cmUniq(CM_TABLE_LIST.map(function(t) { return t[0]; }).concat(['questions', 'organizations', 'bonds', 'facilities', 'work_orders', 'volume_moves', 'bottlings', 'wine_reviews', 'facility_checks', 'vessels']));
+  for (const t of tables) { try { delete CM_CACHE[t]; await cmFetch(t); } catch (e) {} }
+  try { await db.from('organizations').select('*').order('name'); await db.from('bonds').select('*').order('name'); await db.from('facilities').select('*').order('name'); await db.from('profiles').select('org_id').limit(1); } catch (e) {}
+  try { await db.rpc('my_access'); if (cmCan('manage_users')) { await db.rpc('admin_users'); await db.rpc('admin_invites'); await db.rpc('role_defaults'); } } catch (e) {}
+  CM_NET.savedAt = Date.now(); try { localStorage.setItem('cm_saved_at', String(CM_NET.savedAt)); } catch (e) {}
+  cmNetEmit();
+}
+function cmStoredSession() {
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf('sb-') === 0 && k.indexOf('-auth-token') !== -1) { const s = JSON.parse(localStorage.getItem(k)); const v = s && s.currentSession ? s.currentSession : s; if (v && v.user && v.user.id) return v; } } } catch (e) {}
+  return null;
+}
+function cmAgo(t) { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 60000); if (m < 1) return 'just now'; if (m < 60) return m + ' min ago'; const hh = Math.round(m / 60); if (hh < 48) return hh + ' h ago'; return new Date(t).toLocaleDateString(); }
+function CmNetBar() {
+  const s = React.useState(0), setT = s[1]; const so = React.useState(false), open = so[0], setOpen = so[1]; const sd = React.useState(false), hide = sd[0], setHide = sd[1];
+  React.useEffect(function() { const f = function() { setT(function(x) { return x + 1; }); }; CM_NET.listeners.push(f); window.addEventListener('online', f); window.addEventListener('offline', f); const iv = setInterval(f, 30000);
+    return function() { CM_NET.listeners = CM_NET.listeners.filter(function(x) { return x !== f; }); window.removeEventListener('online', f); window.removeEventListener('offline', f); clearInterval(iv); }; }, []);
+  const on = cmIsOnline(); const n = CM_NET.queue.length; const nf = CM_NET.failed.length;
+  if (on && !n && !nf && (!CM_NET.synced || hide)) return null;
+  const bg = !on ? '#4a3a12' : nf ? '#4a1620' : CM_NET.synced && !n ? '#173a26' : '#1d2a44';
+  const bd = !on ? '#e0a83a' : nf ? '#e05a6a' : CM_NET.synced && !n ? '#3fbf7f' : '#5a8ae0';
+  const link = function(label, fn) { return cmE('span', {onClick:fn, style:{marginLeft:10, fontWeight:800, textDecoration:'underline', cursor:'pointer', whiteSpace:'nowrap'}}, label); };
+  let text;
+  if (!on) text = 'Offline. Showing what is saved on this device (saved ' + cmAgo(CM_NET.savedAt) + '). ' + (n ? n + ' change' + (n === 1 ? '' : 's') + ' will sync when you are back online.' : 'Changes you make will sync when you are back online.');
+  else if (CM_NET.syncing) text = 'Back online: syncing ' + n + ' change' + (n === 1 ? '' : 's') + '...';
+  else if (n) text = n + ' change' + (n === 1 ? '' : 's') + ' waiting to sync.';
+  else if (nf) text = nf + ' change' + (nf === 1 ? '' : 's') + ' could not be saved.';
+  else text = 'Synced ' + CM_NET.synced + ' change' + (CM_NET.synced === 1 ? '' : 's') + ' made offline.';
+  return cmE('div', {style:{position:'fixed', top:0, left:0, right:0, zIndex:500, display:'flex', justifyContent:'center', pointerEvents:'none'}},
+    cmE('div', {style:{pointerEvents:'auto', maxWidth:1100, width:'100%', background:bg, borderBottom:'2px solid ' + bd, color:'#fff', fontSize:12, padding:'7px 12px', lineHeight:1.45}},
+      cmE('div', null, text,
+        on && n && !CM_NET.syncing ? link('Sync now', function() { cmSync(); }) : null,
+        on && !n && CM_NET.synced && !nf ? link('Refresh', function() { location.reload(); }) : null,
+        on && !n && CM_NET.synced && !nf ? link('Close', function() { CM_NET.synced = 0; setHide(true); }) : null,
+        nf ? link(open ? 'Hide' : 'Details', function() { setOpen(!open); }) : null),
+      open && nf ? cmE('div', {style:{marginTop:6}}, CM_NET.failed.map(function(f, i) {
+        return cmE('div', {key:i, style:{borderTop:'1px solid rgba(255,255,255,.2)', padding:'5px 0'}},
+          f.q.method + ' ' + f.q.table + ': ' + f.error,
+          link('Discard', function() { CM_NET.failed.splice(i, 1); cmNetSave(); cmNetEmit(); }));
+      })) : null));
+}
+function CmOfflinePanel() {
+  const s = React.useState(0), setT = s[1]; const sb = React.useState(false), busy = sb[0], setBusy = sb[1];
+  React.useEffect(function() { const f = function() { setT(function(x) { return x + 1; }); }; CM_NET.listeners.push(f); return function() { CM_NET.listeners = CM_NET.listeners.filter(function(x) { return x !== f; }); }; }, []);
+  const on = cmIsOnline();
+  return cmE('div', {style:{background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'10px 12px', marginBottom:12}},
+    cmE('div', {style:{fontSize:13, fontWeight:800}}, 'Offline use'),
+    cmE('div', {style:{fontSize:12, color:C.textMuted, marginTop:4, lineHeight:1.5}}, 'This device keeps a copy of the cellar data so CellarMate works in the vineyard, in the cellar with no signal, or on a plane. Saved ' + cmAgo(CM_NET.savedAt) + '. ' + (CM_NET.queue.length ? CM_NET.queue.length + ' change(s) waiting to sync.' : 'Nothing waiting to sync.') + ' It refreshes itself every 20 minutes while online; save now before you lose signal.'),
+    cmE('div', {style:{display:'flex', gap:8, marginTop:8}},
+      cmBtn(busy ? 'Saving...' : 'Save for offline now', function() { setBusy(true); cmPrefetchAll(true).then(function() { setBusy(false); }); }, true, !on || busy),
+      CM_NET.queue.length ? cmBtn('Sync now', function() { cmSync(); }, false, !on) : null));
+}
+(function() {
+  cmNetLoad().then(function() { cmSync(); });
+  window.addEventListener('online', function() { cmNetEmit(); cmSync(); });
+  window.addEventListener('offline', function() { cmNetEmit(); });
+  setInterval(function() { if (CM_NET.queue.length) cmSync(); }, 60000);
+  setTimeout(function() { if (CM_ME.loaded && CM_ME.has_access) cmPrefetchAll(false); }, 8000);
+  setInterval(function() { if (CM_ME.loaded && CM_ME.has_access) cmPrefetchAll(false); }, 5 * 60 * 1000);
+  try { supa.auth.onAuthStateChange(function(ev) { if (ev === 'SIGNED_OUT') { try { localStorage.removeItem('cm_last_user'); } catch (e) {} } }); } catch (e) {}
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') window.addEventListener('load', function() { navigator.serviceWorker.register('/sw.js').catch(function() {}); });
+  const mount = function() { const d = document.createElement('div'); d.id = 'cm-netbar'; document.body.appendChild(d); ReactDOM.createRoot(d).render(cmE(CmNetBar)); };
+  if (document.body) mount(); else document.addEventListener('DOMContentLoaded', mount);
+})();
+
 async function getSupaProfile(userId) {
   const me = await cmLoadAccess();
   if (me.loaded) return me.has_access ? {full_name:me.full_name, role_key:me.role_key, initials:me.initials, color:me.color, org_id:me.org_id} : {_noAccess:true, role_key:'readonly'};
@@ -5900,7 +6112,8 @@ function App() {
         if (vErr) { setRecoveryError('That reset link is invalid or has expired. Use Forgot password? to get a new one.'); }
         else { setRecoveryMode(true); }
       }
-      const { data: { session } } = await supa.auth.getSession();
+      let { data: { session } } = await supa.auth.getSession();
+      if (!session && !cmIsOnline()) session = cmStoredSession();
       if (session) {
         const profile = await getSupaProfile(session.user.id);
         const sess = { email: session.user.email, id: session.user.id, ...(profile||{}),
