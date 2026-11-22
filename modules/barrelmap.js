@@ -1,8 +1,13 @@
-/* CellarMate module: Barrel map (EBS racks, floor rows, pallets)
+/* CellarMate module: Barrel map
+   Views: Layout (racks and rows as they stand), List (every barrel with its spot),
+   By lot (where each wine is), Work list (what to do, in walking order).
+   Color by wine or by next step. Every view prints (or saves as PDF from the print dialog).
    Reads barrel_positions plus the 2025 and 2026 status tables. Registers in CM_MODULES. */
 (function () {
   'use strict';
   var ROSE = { '26-004': 1, '26-005': 1, '26-039': 1 };
+
+  /* ---------- data helpers (pure, tested in tests/smoke.js) ---------- */
   function kindOf(p, st) {
     if (!p.barrel) return 'client';
     if (!st) return 'unk';
@@ -13,106 +18,278 @@
     if (st.owner && !/tystrya/i.test(st.owner) && p.vintage === 2026) return 'client';
     return 'red';
   }
+  function stepOf(p) {
+    if (!p.barrel) return 'client';
+    var t = ((p.st && (p.st.action_group || '')) + ' ' + (p.st && (p.st.action || ''))).toLowerCase();
+    if (!p.st) return 'unk';
+    if (/owner|decision|client|confirm contents/.test(t)) return 'decide';
+    if (/hold/.test(t)) return 'hold';
+    if (/(^|\W)add so2|top up so2/.test(t) && !/done|added \d|so2 added/.test(t)) return 'add';
+    if (/test|malic|brix|measure|check|relabel/.test(t)) return 'test';
+    return 'ok';
+  }
+  var STEP_LABEL = { add: 'Add SO2', test: 'Test or check', hold: 'Hold', decide: 'Owner or winemaker decides', ok: 'Done or at target', unk: 'Not on file', client: 'Client or other winemaker' };
+  var STEP_ORDER = ['add', 'test', 'decide', 'hold', 'ok', 'unk'];
   function short(st) {
     var s = (st && (st.lot_name || st.vineyard)) || '';
     return s.replace(/Estate Blk/g, 'Est').replace(/ \(.*$/, '').replace('Terry Vineyard Chardonnay', 'Terry Ch').slice(0, 18);
   }
-  function cmMapIndex(pos, s25, s26) {
-    var i25 = {}, i26 = {};
+  function lotName(p) {
+    if (!p.st) return 'Not on file';
+    var s = (p.st.lot_name || p.st.vineyard || 'Lot not written').replace(/;.*$/, '');
+    if (/not in barrel list|not linked/i.test(s)) s = 'Lot not written';
+    return p.vintage + ' ' + s + (p.st.owner && !/tystrya/i.test(p.st.owner) ? ' (' + p.st.owner + ')' : '');
+  }
+  function where(p) {
+    if (p.area === 'EBS') return 'EBS ' + p.rack + ' ' + p.side.toLowerCase() + ' ' + p.col;
+    if (p.area === 'Rows') return 'Row ' + p.rack + ' col ' + p.col + ' ' + p.side.toLowerCase() + ' ' + (p.level || '');
+    return p.label || '';
+  }
+  function walkKey(p) {
+    var a = p.area === 'EBS' ? 0 : p.area === 'Rows' ? 1 : 2;
+    return [a, ('00' + p.rack).slice(-2), p.col, p.side === 'Front' ? 0 : 1, p.level || '', p.barrel || ''].join('|');
+  }
+  function cmMapIndex(pos, s25, s26, srows) {
+    var i25 = {}, i26 = {}, iS = {};
+    (srows || []).forEach(function (r) { var b = String(r.b || ''); iS[r.v + '|' + (r.v === 2025 ? b.replace(/^25-0*/, '') : b)] = r; });
     s25.forEach(function (r) { i25[r.barrel] = r; });
     s26.forEach(function (r) { i26[r.barrel] = r; });
     return pos.filter(function (p) { return p.active !== false; }).map(function (p) {
       var st = p.vintage === 2025 ? i25[p.barrel] : p.vintage === 2026 ? i26[p.barrel] : null;
-      return Object.assign({}, p, { st: st, kind: kindOf(p, st) });
+      var o = Object.assign({}, p, { st: st, kind: kindOf(p, st) });
+      var sr = p.barrel ? iS[p.vintage + '|' + p.barrel] : null;
+      o.step = sr ? (sr.cat === 'other' ? 'ok' : sr.cat) : stepOf(o);
+      o.act = sr ? sr.action : (st ? st.action : '');
+      o.g = sr ? sr.g : (st ? st.so2_grams : null);
+      if (o.g === '' || o.g === undefined) o.g = null;
+      return o;
     });
   }
-  function colors() {
-    return { red: '#5a2230', white: '#5a5022', rose: '#5a2248', client: '#22385a', unk: '#3a3a3a' };
+  function cmMapLots(items) {
+    var g = {};
+    items.filter(function (p) { return p.barrel; }).forEach(function (p) { var k = lotName(p); (g[k] = g[k] || []).push(p); });
+    return Object.keys(g).sort().map(function (k) { return { lot: k, barrels: g[k].sort(function (a, b) { return walkKey(a) < walkKey(b) ? -1 : 1; }) }; });
+  }
+  function cmMapWork(items) {
+    var g = {};
+    items.filter(function (p) { return p.barrel; }).forEach(function (p) { (g[p.step] = g[p.step] || []).push(p); });
+    return STEP_ORDER.filter(function (k) { return g[k]; }).map(function (k) { return { step: k, label: STEP_LABEL[k], barrels: g[k].sort(function (a, b) { return walkKey(a) < walkKey(b) ? -1 : 1; }) }; });
   }
 
+  /* ---------- colors ---------- */
+  var DARK = { red: '#5a2230', white: '#5a5022', rose: '#6a2250', client: '#22385a', unk: '#3a3a3a', add: '#7a2a1a', test: '#5a4a12', hold: '#283f66', decide: '#4a2a66', ok: '#1f4a33' };
+  var LIGHT = { red: '#F4D3D9', white: '#FBF1C7', rose: '#F4B6D2', client: '#DCE8F5', unk: '#E3E3E3', add: '#F8C9B8', test: '#F6E7A8', hold: '#CFE0F7', decide: '#E3D3F3', ok: '#CDEBD9' };
+  function fillOf(p, by, pal) { return pal[by === 'step' && p.barrel ? p.step : p.kind] || pal.unk; }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  /* ---------- printable HTML (same layouts, white paper) ---------- */
+  function cellHtml(p, by) {
+    if (!p) return '<td class="e"></td>';
+    var bg = fillOf(p, by, LIGHT);
+    var num = p.barrel ? (p.vintage === 2026 ? p.barrel.slice(3) : p.barrel) : esc(p.label);
+    var sub = p.barrel ? (by === 'step' ? STEP_LABEL[p.step] : (p.vintage === 2025 && p.area === 'Rows' ? '2025' : short(p.st))) : '';
+    return '<td style="background:' + bg + (p.flag ? ';outline:2px solid #E07000;outline-offset:-2px' : '') + '"><b>' + num + '</b><br><span>' + esc(sub) + '</span></td>';
+  }
+  function legendHtml(by) {
+    var keys = by === 'step' ? STEP_ORDER.concat(['client']) : ['red', 'white', 'rose', 'client', 'unk'];
+    var names = { red: 'Red', white: 'White', rose: 'Rose', client: 'Client or other winemaker', unk: 'Lot unknown' };
+    return '<div class="lg">' + keys.map(function (k) { return '<span style="background:' + LIGHT[k] + '">' + esc(by === 'step' ? STEP_LABEL[k] : names[k]) + '</span>'; }).join('') + '<span style="outline:2px solid #E07000">Orange = check</span></div>';
+  }
+  function layoutHtml(items, by) {
+    var h = '<h2>EBS racks (2025 wine)</h2><table class="g"><tr><th>Lvl</th><th>Front A</th><th>Front B</th><th>Front C</th><th>Front D</th><th class="sp"></th><th>Back A</th><th>Back B</th><th>Back C</th><th>Back D</th></tr>';
+    for (var l = 12; l >= 1; l--) {
+      h += '<tr><th>' + l + '</th>';
+      ['Front', 'Back'].forEach(function (side, si) {
+        if (si) h += '<td class="sp"></td>';
+        'ABCD'.split('').forEach(function (c) { h += cellHtml(items.filter(function (p) { return p.area === 'EBS' && p.rack === l && p.side === side && p.col === c; })[0], by); });
+      });
+      h += '</tr>';
+    }
+    h += '</table><div class="pb"></div><h2>Floor rows (2026 wine)</h2><table class="g"><tr><th>Row</th><th>Lvl</th>';
+    for (var c = 1; c <= 4; c++) h += '<th>Col ' + c + ' front</th><th>Col ' + c + ' back</th>';
+    h += '</tr>';
+    var rows = cmUniq(items.filter(function (p) { return p.area === 'Rows'; }).map(function (p) { return p.rack; })).sort(function (a, b) { return a - b; });
+    rows.forEach(function (rn) {
+      ['D', 'C', 'B', 'A'].forEach(function (lv, li) {
+        h += '<tr' + (li === 3 ? ' class="rb"' : '') + '>' + (li === 0 ? '<th rowspan="4">' + rn + '</th>' : '') + '<th>' + lv + '</th>';
+        for (var c = 1; c <= 4; c++) {
+          var inCol = items.filter(function (p) { return p.area === 'Rows' && p.rack === rn && p.col === String(c); });
+          var block = inCol.filter(function (p) { return !p.barrel; })[0];
+          if (block) { if (li === 0) h += '<td colspan="2" rowspan="4" style="background:' + LIGHT.client + '"><b>' + esc(block.label) + '</b></td>'; continue; }
+          ['Front', 'Back'].forEach(function (side) { h += cellHtml(inCol.filter(function (p) { return p.level === lv && p.side === side; })[0], by); });
+        }
+        h += '</tr>';
+      });
+    });
+    h += '</table>';
+    var pal = items.filter(function (p) { return p.area === 'Pallets'; });
+    if (pal.length) h += '<h2>Pallets and small vessels</h2><table class="t">' + pal.map(function (p) { return '<tr><td>Pallet ' + p.rack + '</td><td>' + esc(p.label) + (p.note ? ' (' + esc(p.note) + ')' : '') + '</td></tr>'; }).join('') + '</table>';
+    return h;
+  }
+  function listHtml(items) {
+    var rows = items.filter(function (p) { return p.barrel; }).sort(function (a, b) { return (a.vintage + a.barrel) < (b.vintage + b.barrel) ? -1 : 1; });
+    return '<h2>Every barrel and its spot (' + rows.length + ')</h2><table class="t"><tr><th>Vintage</th><th>Barrel</th><th>Where</th><th>Wine</th><th>Next step</th><th>pH</th></tr>' + rows.map(function (p) {
+      return '<tr><td>' + p.vintage + '</td><td><b>' + esc(p.barrel) + '</b></td><td>' + esc(where(p)) + '</td><td>' + esc(lotName(p).replace(/^\d{4} /, '')) + '</td><td>' + esc(p.act || '') + '</td><td>' + esc(p.st && p.st.ph_latest || '') + '</td></tr>';
+    }).join('') + '</table>';
+  }
+  function lotsHtml(items) {
+    return '<h2>Where each wine is</h2>' + cmMapLots(items).map(function (g) {
+      return '<div class="grp"><b>' + esc(g.lot) + '</b> <span class="n">' + g.barrels.length + ' barrel' + (g.barrels.length === 1 ? '' : 's') + '</span><br>' + g.barrels.map(function (p) { return esc(p.barrel) + ' <span class="n">(' + esc(where(p)) + ')</span>'; }).join(', ') + '</div>';
+    }).join('');
+  }
+  function workHtml(items) {
+    return '<h2>Work list, in walking order</h2>' + cmMapWork(items).filter(function (g) { return g.step !== 'ok'; }).map(function (g) {
+      return '<h3 style="background:' + LIGHT[g.step] + '">' + esc(g.label) + ' (' + g.barrels.length + ')</h3><table class="t"><tr><th class="ck">Done</th><th>Where</th><th>Barrel</th><th>Wine</th><th>What to do</th><th>Grams</th></tr>' + g.barrels.map(function (p) {
+        return '<tr><td class="ck">&#9744;</td><td>' + esc(where(p)) + '</td><td><b>' + esc(p.barrel) + '</b></td><td>' + esc(lotName(p).replace(/^\d{4} /, '')) + '</td><td>' + esc(p.act || '') + '</td><td>' + esc(p.g != null ? p.g + ' g' : '') + '</td></tr>';
+      }).join('') + '</table>';
+    }).join('');
+  }
+  var CSS = 'body{font-family:Helvetica,Arial,sans-serif;color:#222;margin:18px}h1{color:#7B1E3A;font-size:20px;margin:0 0 2px}h2{color:#7B1E3A;font-size:15px;margin:14px 0 6px}h3{font-size:12px;padding:3px 6px;margin:10px 0 4px}.sub{color:#666;font-size:11px;margin-bottom:6px}' +
+    'table{border-collapse:collapse;width:100%}table.g td,table.g th{border:1px solid #999;font-size:9px;text-align:center;padding:2px;height:26px}table.g td span{font-size:8px;color:#333}table.g th{background:#EFE7EA}td.sp,th.sp{border:none!important;background:#fff!important;width:8px}td.e{background:#fff}tr.rb td,tr.rb th{border-bottom:2px solid #000}' +
+    'table.t td,table.t th{border:1px solid #bbb;font-size:10px;padding:3px 5px;text-align:left}table.t th{background:#EFE7EA}.ck{width:34px;text-align:center!important;font-size:13px!important}.grp{font-size:10.5px;margin:0 0 7px;line-height:1.35}.n{color:#666}' +
+    '.lg span{display:inline-block;font-size:9px;padding:2px 6px;margin:0 4px 4px 0;border:1px solid #bbb}.pb{page-break-after:always}@page{size:landscape;margin:10mm}@media print{.noprint{display:none}}button{font-size:14px;padding:6px 14px;margin-bottom:10px}';
+  function cmMapPrintHtml(view, items, by) {
+    var title = { layout: 'Barrel map', list: 'Barrel list', lots: 'Barrels by wine', work: 'Cellar work list' }[view] || 'Barrel map';
+    var asOf = (items[0] && items[0].as_of) || '';
+    var body = view === 'list' ? listHtml(items) : view === 'lots' ? lotsHtml(items) : view === 'work' ? workHtml(items) : (legendHtml(by) + layoutHtml(items, by));
+    return '<!doctype html><html><head><meta charset="utf-8"><title>CellarMate ' + title + '</title><style>' + CSS + '</style></head><body>' +
+      '<div class="noprint"><button onclick="window.print()">Print or save as PDF</button></div><h1>CellarMate: ' + title + '</h1><div class="sub">Positions as of ' + esc(asOf) + '. Printed ' + new Date().toLocaleDateString() + '.</div>' + body + '</body></html>';
+  }
+  function printView(view, items, by) {
+    var html = cmMapPrintHtml(view, items, by);
+    var w = null;
+    try { w = window.open('', '_blank'); } catch (e) { w = null; }
+    if (w && w.document) { w.document.open(); w.document.write(html); w.document.close(); setTimeout(function () { try { w.focus(); w.print(); } catch (e) {} }, 400); return 'window'; }
+    var f = document.createElement('iframe'); f.style.position = 'fixed'; f.style.right = '0'; f.style.bottom = '0'; f.style.width = '0'; f.style.height = '0'; f.style.border = '0';
+    document.body.appendChild(f); f.srcdoc = html;
+    f.onload = function () { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {} setTimeout(function () { f.remove(); }, 60000); };
+    return 'frame';
+  }
+
+  /* ---------- screen ---------- */
   function CmBarrelMap() {
     var sD = React.useState(null), D = sD[0], setD = sD[1];
+    var sV = React.useState('layout'), view = sV[0], setView = sV[1];
     var sA = React.useState('EBS'), area = sA[0], setArea = sA[1];
+    var sB = React.useState('wine'), by = sB[0], setBy = sB[1];
     var sS = React.useState(null), sel = sS[0], setSel = sS[1];
     var sQ = React.useState(''), q = sQ[0], setQ = sQ[1];
     var sE = React.useState(''), err = sE[0], setErr = sE[1];
     React.useEffect(function () {
       var live = true;
-      Promise.all([cmFetch('barrel_positions'), cmFetch('barrel_status_2025'), cmFetch('barrel_status_2026')])
-        .then(function (a) { if (live) setD(cmMapIndex(a[0], a[1], a[2])); })
+      Promise.all([cmFetch('barrel_positions'), cmFetch('barrel_status_2025'), cmFetch('barrel_status_2026'), (typeof cmStatusRows === 'function' ? cmStatusRows() : Promise.resolve([])).catch(function () { return []; })])
+        .then(function (a) { if (live) setD(cmMapIndex(a[0], a[1], a[2], a[3])); })
         .catch(function (e) { if (live) { setErr(e.message); setD([]); } });
       return function () { live = false; };
     }, []);
     if (!D) return cmE('div', { style: { textAlign: 'center', color: C.textDim, padding: 30 } }, 'Loading...');
-    var col = colors();
     var small = { fontSize: 11, color: C.textDim };
     var card = { background: C.card, border: '1px solid ' + C.cardBorder, borderRadius: 10, padding: '10px 12px', marginBottom: 8 };
-    var hit = function (p) { return q && p.barrel && p.barrel.replace('26-', '').replace(/^0+/, '') === q.replace(/^26-/, '').replace(/^0+/, ''); };
+    var norm = function (s) { return String(s || '').replace(/^26-/, '').replace(/^0+/, ''); };
+    var hit = function (p) { return q && p.barrel && norm(p.barrel) === norm(q); };
     var box = function (p, key) {
       if (!p) return cmE('div', { key: key, style: { minHeight: 34, border: '1px dashed ' + C.cardBorder, borderRadius: 6 } });
       var isSel = sel && sel.id === p.id;
       return cmE('div', { key: key, onClick: function () { setSel(isSel ? null : p); }, title: p.barrel || p.label,
-        style: { minHeight: 34, background: col[p.kind], borderRadius: 6, padding: '3px 4px', cursor: 'pointer', textAlign: 'center', lineHeight: 1.15,
+        style: { minHeight: 34, background: fillOf(p, by, DARK), borderRadius: 6, padding: '3px 4px', cursor: 'pointer', textAlign: 'center', lineHeight: 1.15,
           border: '2px solid ' + (hit(p) ? C.accentLight : isSel ? '#fff' : p.flag ? C.orange : 'transparent') } },
         cmE('div', { style: { fontWeight: 800, fontSize: 12 } }, p.barrel ? (p.vintage === 2026 ? p.barrel.slice(3) : p.barrel) : p.label),
-        p.barrel ? cmE('div', { style: { fontSize: 9, color: '#ddd' } }, p.vintage === 2025 && area === 'Rows' ? '2025' : short(p.st)) : null);
+        p.barrel ? cmE('div', { style: { fontSize: 9, color: '#ddd' } }, by === 'step' ? STEP_LABEL[p.step] : (p.vintage === 2025 && p.area === 'Rows' ? '2025' : short(p.st))) : null);
     };
-    var mine = D.filter(function (p) { return p.area === area; });
-    var grid;
-    if (area === 'EBS') {
-      var levels = []; for (var l = 12; l >= 1; l--) levels.push(l);
-      grid = cmE('div', { style: { overflowX: 'auto' } }, cmE('div', { style: { minWidth: 640 } },
-        cmE('div', { style: { display: 'grid', gridTemplateColumns: '34px repeat(4, 1fr) 10px repeat(4, 1fr)', gap: 4, marginBottom: 4, fontSize: 10, color: C.textDim, textAlign: 'center' } },
-          [cmE('div', { key: 'h' }, 'Lvl')].concat('ABCD'.split('').map(function (c) { return cmE('div', { key: 'f' + c }, 'Front ' + c); }), [cmE('div', { key: 'sp' })], 'ABCD'.split('').map(function (c) { return cmE('div', { key: 'b' + c }, 'Back ' + c); }))),
-        levels.map(function (lv) {
-          var cells = [cmE('div', { key: 'l', style: { fontWeight: 700, alignSelf: 'center', textAlign: 'center' } }, lv)];
-          ['Front', 'Back'].forEach(function (side, si) {
-            if (si) cells.push(cmE('div', { key: 'sp' }));
-            'ABCD'.split('').forEach(function (c) { cells.push(box(mine.filter(function (p) { return p.rack === lv && p.side === side && p.col === c; })[0], side + c)); });
-          });
-          return cmE('div', { key: lv, style: { display: 'grid', gridTemplateColumns: '34px repeat(4, 1fr) 10px repeat(4, 1fr)', gap: 4, marginBottom: 4 } }, cells);
-        })));
-    } else if (area === 'Rows') {
-      var rows = cmUniq(mine.map(function (p) { return p.rack; })).sort(function (a, b) { return a - b; });
-      grid = cmE('div', { style: { overflowX: 'auto' } }, cmE('div', { style: { minWidth: 700 } }, rows.map(function (rn) {
-        var inRow = mine.filter(function (p) { return p.rack === rn; });
-        return cmE('div', { key: rn, style: Object.assign({}, card, { padding: 8 }) },
-          cmE('div', { style: { fontWeight: 700, marginBottom: 6 } }, 'Row ' + rn),
-          cmE('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 } }, ['1', '2', '3', '4'].map(function (c) {
-            var inCol = inRow.filter(function (p) { return p.col === c; });
-            var block = inCol.filter(function (p) { return !p.barrel; })[0];
-            return cmE('div', { key: c },
-              cmE('div', { style: Object.assign({}, small, { textAlign: 'center', marginBottom: 3 }) }, 'Column ' + c + ' · front | back'),
-              block ? cmE('div', { style: { minHeight: 60, background: col.client, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 } }, block.label)
-                : cmE('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 } }, ['D', 'C', 'B', 'A'].map(function (lv) {
-                  return ['Front', 'Back'].map(function (side) { return box(inCol.filter(function (p) { return p.level === lv && p.side === side; })[0], lv + side); });
-                })));
-          })));
-      })));
-    } else {
-      grid = cmE('div', null, mine.sort(function (a, b) { return a.rack - b.rack; }).map(function (p) {
-        return cmE('div', { key: p.id, style: card }, cmE('div', { style: { fontWeight: 700 } }, p.label), p.note ? cmE('div', { style: small }, p.note) : null);
+    var spotBtn = function (p) { return cmE('span', { key: p.id, onClick: function () { setSel(p); setView('layout'); setArea(p.area === 'Pallets' ? 'Pallets' : p.area); setQ(p.barrel); }, style: { cursor: 'pointer', color: C.accentLight, whiteSpace: 'nowrap' } }, p.barrel + ' · ' + where(p)); };
+
+    var body;
+    if (view === 'list') {
+      var rows = D.filter(function (p) { return p.barrel && (!q || norm(p.barrel).indexOf(norm(q)) === 0 || lotName(p).toLowerCase().indexOf(q.toLowerCase()) > -1); })
+        .sort(function (a, b) { return (a.vintage + a.barrel) < (b.vintage + b.barrel) ? -1 : 1; });
+      body = cmE('div', { style: card }, rows.map(function (p) {
+        return cmE('div', { key: p.id, onClick: function () { setSel(p); setView('layout'); setArea(p.area); setQ(p.barrel); }, style: { display: 'flex', gap: 8, fontSize: 12, padding: '4px 0', borderBottom: '1px solid ' + C.cardBorder, cursor: 'pointer', flexWrap: 'wrap' } },
+          cmE('span', { style: { minWidth: 70, fontWeight: 700 } }, p.vintage === 2026 ? p.barrel : '25-' + p.barrel),
+          cmE('span', { style: { minWidth: 150, color: C.accentLight } }, where(p)),
+          cmE('span', { style: { flex: '1 1 160px' } }, lotName(p).replace(/^\d{4} /, '')),
+          cmE('span', { style: { flex: '1 1 160px', color: C.textDim } }, p.act || ''));
       }));
+    } else if (view === 'lots') {
+      body = cmE('div', null, cmMapLots(D).filter(function (g) { return !q || g.lot.toLowerCase().indexOf(q.toLowerCase()) > -1; }).map(function (g) {
+        return cmE('div', { key: g.lot, style: card }, cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, g.lot + '  ', cmE('span', { style: small }, g.barrels.length + ' barrel' + (g.barrels.length === 1 ? '' : 's'))),
+          cmE('div', { style: { fontSize: 12, lineHeight: 1.7, display: 'flex', flexWrap: 'wrap', columnGap: 10 } }, g.barrels.map(spotBtn)));
+      }));
+    } else if (view === 'work') {
+      body = cmE('div', null, cmMapWork(D).filter(function (g) { return g.step !== 'ok'; }).map(function (g) {
+        return cmE('div', { key: g.step, style: card }, cmE('div', { style: { fontWeight: 700, marginBottom: 6 } }, cmE('span', { style: { display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: DARK[g.step], marginRight: 6 } }), g.label + ' (' + g.barrels.length + ')'),
+          g.barrels.map(function (p) {
+            return cmE('div', { key: p.id, style: { display: 'flex', gap: 8, fontSize: 12, padding: '3px 0', borderBottom: '1px solid ' + C.cardBorder, flexWrap: 'wrap' } },
+              cmE('span', { style: { minWidth: 150, color: C.accentLight } }, where(p)), cmE('span', { style: { minWidth: 60, fontWeight: 700 } }, p.barrel),
+              cmE('span', { style: { flex: '1 1 200px' } }, p.act || ''), p.g != null ? cmE('span', { style: { fontWeight: 700 } }, p.g + ' g') : null);
+          }));
+      }));
+    } else {
+      var mine = D.filter(function (p) { return p.area === area; });
+      if (area === 'EBS') {
+        var levels = []; for (var l = 12; l >= 1; l--) levels.push(l);
+        var tpl = '34px repeat(4, 1fr) 10px repeat(4, 1fr)';
+        body = cmE('div', { style: { overflowX: 'auto' } }, cmE('div', { style: { minWidth: 640 } },
+          cmE('div', { style: { display: 'grid', gridTemplateColumns: tpl, gap: 4, marginBottom: 4, fontSize: 10, color: C.textDim, textAlign: 'center' } },
+            [cmE('div', { key: 'h' }, 'Lvl')].concat('ABCD'.split('').map(function (c) { return cmE('div', { key: 'f' + c }, 'Front ' + c); }), [cmE('div', { key: 'sp' })], 'ABCD'.split('').map(function (c) { return cmE('div', { key: 'b' + c }, 'Back ' + c); }))),
+          levels.map(function (lv) {
+            var cells = [cmE('div', { key: 'l', style: { fontWeight: 700, alignSelf: 'center', textAlign: 'center' } }, lv)];
+            ['Front', 'Back'].forEach(function (side, si) {
+              if (si) cells.push(cmE('div', { key: 'sp' }));
+              'ABCD'.split('').forEach(function (c) { cells.push(box(mine.filter(function (p) { return p.rack === lv && p.side === side && p.col === c; })[0], side + c)); });
+            });
+            return cmE('div', { key: lv, style: { display: 'grid', gridTemplateColumns: tpl, gap: 4, marginBottom: 4 } }, cells);
+          })));
+      } else if (area === 'Rows') {
+        var rowsN = cmUniq(mine.map(function (p) { return p.rack; })).sort(function (a, b) { return a - b; });
+        body = cmE('div', { style: { overflowX: 'auto' } }, cmE('div', { style: { minWidth: 700 } }, rowsN.map(function (rn) {
+          var inRow = mine.filter(function (p) { return p.rack === rn; });
+          return cmE('div', { key: rn, style: Object.assign({}, card, { padding: 8 }) },
+            cmE('div', { style: { fontWeight: 700, marginBottom: 6 } }, 'Row ' + rn),
+            cmE('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 } }, ['1', '2', '3', '4'].map(function (c) {
+              var inCol = inRow.filter(function (p) { return p.col === c; });
+              var block = inCol.filter(function (p) { return !p.barrel; })[0];
+              return cmE('div', { key: c },
+                cmE('div', { style: Object.assign({}, small, { textAlign: 'center', marginBottom: 3 }) }, 'Column ' + c + ' · front | back'),
+                block ? cmE('div', { style: { minHeight: 60, background: DARK.client, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 } }, block.label)
+                  : cmE('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 } }, ['D', 'C', 'B', 'A'].map(function (lv) {
+                    return ['Front', 'Back'].map(function (side) { return box(inCol.filter(function (p) { return p.level === lv && p.side === side; })[0], lv + side); });
+                  })));
+            })));
+        })));
+      } else {
+        body = cmE('div', null, mine.sort(function (a, b) { return a.rack - b.rack; }).map(function (p) {
+          return cmE('div', { key: p.id, style: card }, cmE('div', { style: { fontWeight: 700 } }, 'Pallet ' + p.rack + ': ' + p.label), p.note ? cmE('div', { style: small }, p.note) : null);
+        }));
+      }
     }
-    var detail = sel ? cmE('div', { style: Object.assign({}, card, { borderColor: C.accentLight }) },
-      cmE('div', { style: { fontWeight: 800 } }, (sel.barrel ? (sel.vintage + ' barrel ' + sel.barrel) : sel.label)),
-      cmE('div', { style: small }, sel.area === 'EBS' ? 'EBS level ' + sel.rack + ', ' + sel.side.toLowerCase() + ' ' + sel.col : sel.area === 'Rows' ? 'Row ' + sel.rack + ', column ' + sel.col + ', ' + sel.side.toLowerCase() + ', level ' + sel.level : ''),
+    var detail = sel && view === 'layout' ? cmE('div', { style: Object.assign({}, card, { borderColor: C.accentLight }) },
+      cmE('div', { style: { fontWeight: 800 } }, sel.barrel ? (sel.vintage + ' barrel ' + sel.barrel) : sel.label),
+      cmE('div', { style: small }, where(sel)),
       sel.st ? cmE('div', { style: { fontSize: 12, marginTop: 4 } }, [sel.st.lot_name || sel.st.vineyard, sel.st.owner, sel.st.wine_type, sel.st.ph_latest ? 'pH ' + sel.st.ph_latest : null].filter(Boolean).join(' · ')) : null,
-      sel.st && sel.st.action ? cmE('div', { style: { fontSize: 12, color: C.accentLight, marginTop: 2 } }, sel.st.action) : null,
+      sel.act ? cmE('div', { style: { fontSize: 12, color: C.accentLight, marginTop: 2 } }, sel.act + (sel.g != null ? ' (' + sel.g + ' g)' : '')) : null,
       sel.note ? cmE('div', { style: small }, 'Map note: ' + sel.note) : null,
       sel.flag ? cmE('div', { style: { fontSize: 12, color: C.orange } }, sel.flag) : null) : null;
+    var legendKeys = by === 'step' ? STEP_ORDER.concat(['client']) : ['red', 'white', 'rose', 'client', 'unk'];
+    var legendNames = { red: 'Red', white: 'White', rose: 'Rose', client: 'Client', unk: 'Lot unknown' };
     var placed = D.filter(function (p) { return p.barrel; }).length;
-    var flagged = D.filter(function (p) { return p.flag; }).length;
     return cmE('div', null,
       err ? cmE('div', { style: { color: C.red, fontSize: 12 } }, err) : null,
-      cmE('div', { style: { display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' } },
+      cmE('div', { style: { display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' } },
+        cmE('div', { style: { flex: '3 1 340px' } }, cmSeg([['layout', 'Layout'], ['list', 'List'], ['lots', 'By wine'], ['work', 'Work list']], view, function (v) { setView(v); setSel(null); })),
+        cmE('input', { value: q, onChange: function (e) { setQ(e.target.value.trim()); }, placeholder: view === 'lots' ? 'Find wine' : 'Find barrel', style: Object.assign({}, cmSel, { flex: '1 1 120px' }) }),
+        cmE('button', { onClick: function () { printView(view, D, by); }, style: { background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, 'Print')),
+      view === 'layout' ? cmE('div', { style: { display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' } },
         cmE('div', { style: { flex: '2 1 260px' } }, cmSeg([['EBS', 'EBS racks'], ['Rows', 'Floor rows'], ['Pallets', 'Pallets']], area, function (a) { setArea(a); setSel(null); })),
-        cmE('input', { value: q, onChange: function (e) { setQ(e.target.value.trim()); }, placeholder: 'Find barrel', style: Object.assign({}, cmSel, { flex: '1 1 120px' }) })),
-      cmE('div', { style: Object.assign({}, small, { marginBottom: 8 }) }, placed + ' barrels placed · ' + flagged + ' to check (orange) · as of ' + ((D[0] && D[0].as_of) || '') + '. Colors: red wine, white, rose, client or other winemaker, lot unknown.'),
-      detail, grid);
+        cmE('div', { style: { flex: '1 1 200px' } }, cmSeg([['wine', 'Color: wine'], ['step', 'Color: next step']], by, setBy))) : null,
+      view === 'layout' ? cmE('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 } }, legendKeys.map(function (k) {
+        return cmE('span', { key: k, style: { fontSize: 10, background: DARK[k], borderRadius: 4, padding: '2px 6px' } }, by === 'step' ? STEP_LABEL[k] : legendNames[k]);
+      }).concat([cmE('span', { key: 'fl', style: { fontSize: 10, border: '2px solid ' + C.orange, borderRadius: 4, padding: '1px 6px' } }, 'Check')])) : null,
+      cmE('div', { style: Object.assign({}, small, { marginBottom: 8 }) }, placed + ' barrels placed · positions as of ' + ((D[0] && D[0].as_of) || '') +
+        (view === 'work' ? ' · grouped by next step, in walking order (EBS bottom to top, then rows)' : view === 'lots' ? ' · tap a barrel to see it on the layout' : '')),
+      detail, body);
   }
 
-  window.cmMapIndex = cmMapIndex;
+  window.cmMapIndex = cmMapIndex; window.cmMapLots = cmMapLots; window.cmMapWork = cmMapWork; window.cmMapPrintHtml = cmMapPrintHtml;
   window.CM_MODULES = window.CM_MODULES || {};
   window.CM_MODULES.map = { label: 'Map', Component: CmBarrelMap, order: 47 };
 })();
