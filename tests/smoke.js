@@ -94,6 +94,17 @@ window.cmSmoke = async function(opts) {
   ok('label sheet has one label per barrel', (lh.match(/class="l"/g) || []).length === 7);
   const h97 = await LBt.history({vintage:2026, barrel:'26-097'});
   ok('barrel history finds the Nov 20 SO2 add on 26-097', h97.some(function(x) { return /2026-11-20/.test(x.d); }), JSON.stringify(h97.slice(0,3)));
+  /* 1i. topping schedule */
+  ok('topping module loaded', !!(window.CM_MODULES && CM_MODULES.top && window.cmToppingStatus));
+  const tz = await cmFetch('topping_log');
+  const ts = cmToppingStatus(bm, tz, 21, '2026-11-22');
+  ok('every placed barrel gets a topping status', ts.length === placedN && ts.every(function(r) { return ['overdue','never','soon','ok'].indexOf(r.status) > -1; }));
+  ok('2026 barrels show the Nov 10 topping', ts.filter(function(r) { return r.p.vintage === 2026; }).every(function(r) { return r.last >= '2026-11-10'; }));
+  const fake = [{vintage:null, area:'EBS|4', topped_on:'2026-11-20'}, {barrels:['26-022'], topped_on:'2026-11-21'}];
+  const ts2 = cmToppingStatus(bm, fake, 21, '2026-11-22');
+  ok('a rack topping covers only that rack', ts2.filter(function(r) { return r.last === '2026-11-20'; }).every(function(r) { return r.p.area === 'EBS' && r.p.rack === 4; }) && ts2.some(function(r) { return r.last === '2026-11-20'; }));
+  ok('a named-barrel topping covers that barrel', ts2.filter(function(r) { return r.last === '2026-11-21'; }).map(function(r) { return r.p.barrel; }).join() === '26-022');
+  ok('overdue after the interval', cmToppingStatus(bm, [{vintage:2026, topped_on:'2026-10-01'}], 21, '2026-11-22').filter(function(r) { return r.p.vintage === 2026; }).every(function(r) { return r.status === 'overdue'; }));
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -114,7 +125,7 @@ window.cmSmoke = async function(opts) {
   const g = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Kameron'; })[0];
   if (g && /logging today/.test(document.body.innerText.slice(0, 300))) { g.click(); await wait(1500); }
   for (const n of ['Cellar', 'Lots', 'Health', 'Schedule', 'Reports']) { nav(n); await wait(1600); ok('screen ' + n, document.body.innerText.length > 500 && !bad(), bad()); }
-  for (const t of ['Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Materials', 'Costs', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
+  for (const t of ['Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Materials', 'Costs', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
     if (!click(t, 'button')) continue; await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }
