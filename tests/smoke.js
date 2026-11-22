@@ -118,6 +118,18 @@ window.cmSmoke = async function(opts) {
   ok('latest panels built from the SO2 log and malic tests', allP.length >= 150, allP.length);
   const p7 = allP.filter(function(p) { return p.vintage === 2025 && p.barrel === '7'; })[0];
   ok('a reading taken before an SO2 add asks for a re-test, not a low-SO2 alarm', p7 && cmLabFlags(p7, false).some(function(f) { return /after the last reading/.test(f); }) && !cmLabFlags(p7, false).some(function(f) { return /^Molecular/.test(f); }), p7 && JSON.stringify(cmLabFlags(p7, false)));
+  /* 1k. lab report files */
+  ok('lab report reader loaded', !!(window.cmParseEts && window.CmLabUpload));
+  const etsLines = ['LABORATORY', 'REPORT', '# 2139885O', 'Samples Received', '10 January 2025 2:28 pm', 'Analyte   Result   Analysis Date   Method Reference',
+    '501101000           26-22', '  free sulfur dioxide          <2     mg/L       1/10/25     A2LA Accredited Test - SOP# A024',
+    '  pH                           3.83              1/10/25     A2LA Accredited Test - SOP# A022', '  volatile acidity (acetic acid)    1.20     g/L    1/10/25   A2LA',
+    '  ethanol at 20C               14.32     % vol    1/10/25   A2LA', '  ethanol at 60F               14.25     % vol    1/10/25   A2LA',
+    '501101001           Buckot bros', '  yeast assimilable nitrogen     95   mg/L (as N)    9/25/25', 'ETS Laboratories - Oregon Facility'];
+  const ep = cmParseEts(etsLines);
+  ok('ETS report header read', ep.lab === 'ETS Laboratories' && ep.report_no === '2139885O' && ep.received_on === '2025-01-10', JSON.stringify([ep.lab, ep.report_no, ep.received_on]));
+  ok('ETS samples and results read', ep.samples.length === 2 && ep.samples[0].barrel === '26-022' && ep.samples[0].results.length === 4 && ep.samples[1].barrel === null, JSON.stringify(ep.samples.map(function(s) { return [s.desc, s.barrel, s.results.length]; })));
+  ok('ETS values: below-limit and VA', ep.samples[0].results[0].value_text.indexOf('<2') === 0 && ep.samples[0].results[2].analyte === 'va' && ep.samples[0].results[2].value === 1.2);
+  ok('PDF text rebuilt into lines', JSON.stringify(cmLinesFromItems([{str:'pH', x:10, y:500}, {str:'3.42', x:300, y:500.8}, {str:'brix', x:10, y:480}])) === JSON.stringify(['pH   3.42', 'brix']));
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
