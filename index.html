@@ -4026,7 +4026,7 @@ const CM_TABLE_LIST = [
   ['tasting_notes','Tasting notes'],['cellar_trials','Cellar trials'],['fermenters','Fermenters'],['ferment_readings','Ferment readings'],
   ['picks','Picks'],['fruit_ownership','Fruit ownership'],['estate_harvests','Estate harvests'],['vineyard_blocks','Vineyard blocks'],
   ['vineyard_sprays','Vineyard sprays'],['soil_tests','Soil tests'],['tissue_tests','Tissue tests'],['bottled_skus','Bottled SKUs'],
-  ['custom_crush_quotes','Custom crush quotes'],['cellar_locations','Cellar locations'],['data_gaps','Open questions'],['cellar_actions','Work log (SO2, ML, readings)'],['topping_log','Topping log'],['tartaric_additions','Tartaric additions'],['work_orders','Work orders'],['volume_moves','Volume ledger'],['bottlings','Bottlings'],['wine_reviews','Wine reviews'],['facility_checks','Quarterly checks']
+  ['custom_crush_quotes','Custom crush quotes'],['cellar_locations','Cellar locations'],['data_gaps','Open questions'],['cellar_actions','Work log (SO2, ML, readings)'],['topping_log','Topping log'],['tartaric_additions','Tartaric additions'],['work_orders','Work orders'],['volume_moves','Volume ledger'],['bottlings','Bottlings'],['wine_reviews','Wine reviews'],['facility_checks','Quarterly checks'],['supplies','Supplies'],['supply_lots','Supply lots received'],['supply_uses','Supply uses'],['supply_counts','Supply stock counts']
 ];
 const CM_CACHE = {};
 const CM_HIDE = {id:1, organization_id:1, created_at:1, updated_at:1};
@@ -4203,7 +4203,7 @@ function CmReportsScreen(props) {
   React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function(e) { if (live) { setRows([]); setErr(e.message); } }); return function() { live = false; }; }, [tab]);
   React.useEffect(function() { if (tab !== 'data') return; let live = true; setData(null); cmFetch(tbl).then(function(r) { if (live) setData(r); }).catch(function(e) { if (live) { setData([]); setErr(e.message); } }); return function() { live = false; }; }, [tab, tbl]);
   const run = function(label, fn) { setBusy(label); setErr(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }).then(function() { setBusy(''); }); };
-  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:850}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['wines','Wines'],['data','Data'],['ask','Q&A']].concat(cmCan('facility_view') ? [['fac','Facility'],['ttb','TTB']] : []).concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
+  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:930}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['wines','Wines'],['sup','Supplies'],['data','Data'],['ask','Q&A']].concat(cmCan('facility_view') ? [['fac','Facility'],['ttb','TTB']] : []).concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
   const errBox = err ? cmE('div', {style:{background:C.redDim, border:'1px solid ' + C.red, borderRadius:8, padding:'10px 12px', color:C.red, fontSize:12, marginBottom:12, fontWeight:600}}, err) : null;
   const busyBox = busy ? cmE('div', {style:{fontSize:12, color:C.accentLight, marginBottom:10}}, busy) : null;
 
@@ -4216,6 +4216,7 @@ function CmReportsScreen(props) {
   if (tab === 'fac') return cmE(React.Fragment, null, tabs, cmE(CmFacility, null));
   if (tab === 'ttb') return cmE(React.Fragment, null, tabs, cmE(CmTtb, null));
   if (tab === 'wines') return cmE(React.Fragment, null, tabs, cmE(CmWines, null));
+  if (tab === 'sup') return cmE(React.Fragment, null, tabs, cmE(CmSupplies, null));
   if (tab === 'tanks') return cmE(React.Fragment, null, tabs, cmE(CmTanks, null));
   if (tab === 'data') {
     const all = data || [];
@@ -4720,9 +4721,11 @@ function cmExtraReport(rep, rows, X) {
 function cmActLabel(t) { return {so2:'SO2 added', ml:'ML inoculated', free_so2:'Free SO2 reading', malic:'Malic reading', ph:'pH reading', note:'Note'}[t] || t; }
 const CM_SO2_FREE_SHARE = 1.0;
 const CM_SO2_DECAY_PPM_DAY = 0.3;
+const CM_SO2_PPM_PER_G_225 = 1.86;
+function cmLossPerDay(ph) { if (ph == null) return 0.07; if (ph >= 3.8) return 0.16; if (ph >= 3.7) return 0.07; return 0.04; }
 function cmTabletsFor(g) { let best = null; for (let n5 = 0; n5 <= Math.ceil(g / 5); n5++) { const rem = g - 5 * n5; const n2 = rem > 0 ? Math.ceil(rem / 2) : 0; const tot = 5 * n5 + 2 * n2; const cnt = n5 + n2; if (!best || tot < best.tot || (tot === best.tot && cnt < best.cnt)) best = {tot:tot, cnt:cnt, n5:n5, n2:n2}; } if (!best) return {g:0, tab:''}; return {g:best.tot, tab:[best.n5 ? best.n5 + String.fromCharCode(215) + '5' : '', best.n2 ? best.n2 + String.fromCharCode(215) + '2' : ''].filter(Boolean).join(' + ')}; }
 function cmTargetFor(r) { if (r.ph == null) return r.target; const white = ['Chardonnay', CM_ROSE, 'Albari' + String.fromCharCode(241) + 'o', 'White'].indexOf(r.var) !== -1; const mol = white ? 0.8 : 0.5; return Math.round(Math.min(50, mol * (1 + Math.pow(10, r.ph - 1.81)))); }
-function cmPresumedNow(r) { if (!r.presumedOn) return r.est; const days = Math.max(0, cmDays(r.presumedOn, today())); return Math.max(0, Math.round(r.presumedStart - CM_SO2_DECAY_PPM_DAY * days)); }
+function cmPresumedNow(r) { if (!r.presumedOn) return r.est; const days = Math.max(0, cmDays(r.presumedOn, today())); return Math.max(0, Math.round(r.presumedStart - cmLossPerDay(r.ph) * days)); }
 function cmApplyActions(rows, acts) {
   if (!acts || !acts.length) return;
   const map = {}; rows.forEach(function(r) { map[r.v + '|' + r.raw] = r; });
@@ -4731,8 +4734,9 @@ function cmApplyActions(rows, acts) {
     const d = a.done_on || '';
     if (a.action_type === 'so2') {
       const L = r.L || 225; const base = r.est != null ? cmPresumedNow(r) : (r.last != null ? r.last : 0);
-      r.presumedStart = Math.round(base + (a.grams != null ? Number(a.grams) * 1000 / L * CM_SO2_FREE_SHARE : 0)); r.presumedOn = d; r.presumed = true; r.est = cmPresumedNow(r);
-      r.action = 'SO2 added ' + d + (a.grams != null ? ' (' + Number(a.grams) + ' g)' : '') + ': presumed free SO2 about ' + r.est + ' ppm' + (r.target != null ? ' (target ' + r.target + ')' : '') + ' until tested. Test in about a week.';
+      r.presumedStart = Math.round(base + (a.grams != null ? Number(a.grams) * CM_SO2_PPM_PER_G_225 * 225 / L : 0)); r.presumedOn = d; r.presumed = true; r.est = cmPresumedNow(r);
+      const under = r.target != null && r.est < r.target - 3;
+      r.action = 'SO2 added ' + d + (a.grams != null ? ' (' + Number(a.grams) + ' g)' : '') + ': presumed free SO2 about ' + r.est + ' ppm' + (r.target != null ? (under ? ', under the target of ' + r.target + '. Test in 3 to 7 days to confirm.' : ' (target ' + r.target + ') until tested. Test in about a week.') : ' until tested.');
       r.group = 'Done: SO2 added, test free SO2 next'; r.cat = 'ok'; r.g = null; r.tab = null; }
     else if (a.action_type === 'ml') { r.mlf = 'In MLF (inoculated ' + d + ')'; r.action = 'ML inoculated ' + d + ': hold SO2, keep 66-70 F, re-test malic'; r.group = 'Hold SO2 (in MLF)'; r.cat = 'hold'; r.g = null; r.tab = null; }
     else if (a.action_type === 'ph' && a.value != null) { r.ph = Number(a.value); r.target = cmTargetFor(r); }
@@ -4789,8 +4793,9 @@ function CmLogWork() {
       if (reading) { num = Number(val); if (val === '' || isNaN(num)) throw new Error('Enter the reading as a number.'); }
       const org = await cmOrg();
       const recs = chosen.map(function(r) { return {organization_id:r.org || org, vintage:vn, barrel:r.raw, action_type:type, done_on:date, grams:type === 'so2' ? r.g : null, value:num, note:type === 'note' ? val : null}; });
-      const res = await supa.schema('cellarmate').from('cellar_actions').insert(recs);
+      const res = await supa.schema('cellarmate').from('cellar_actions').insert(recs).select('id');
       if (res.error) throw new Error(res.error.message);
+      if (type === 'so2' && res.data) { await cmLogTabletUses(res.data.map(function(row, i) { return Object.assign({}, recs[i], {id:row.id, tab:chosen[i] ? chosen[i].tab : null}); })); }
       setMsg('Saved ' + recs.length + ' ' + cmActLabel(type) + ' entr' + (recs.length === 1 ? 'y' : 'ies') + ' for ' + date + '.'); setVal(''); refresh();
     }).catch(function(e) { setErr(e.message); });
   };
@@ -5249,7 +5254,7 @@ function CmWork() {
       else rec.note = 'Work order done: ' + o.title;
       recs.push(rec);
     });
-    if (recs.length) { const r2 = await db().from('cellar_actions').insert(recs); if (r2.error) throw new Error(r2.error.message); }
+    if (recs.length) { const r2 = await db().from('cellar_actions').insert(recs).select('id'); if (r2.error) throw new Error(r2.error.message); if (o.task_type === 'so2' && r2.data) { await cmLogTabletUses(r2.data.map(function(row, i) { return Object.assign({}, recs[i], {id:row.id}); })); } }
     const r3 = await db().from('work_orders').update({status:'Done', done_on:day, done_by:CM_ME.full_name || o.assigned_to || (u.data && u.data.user && u.data.user.email) || null}).eq('id', o.id);
     if (r3.error) throw new Error(r3.error.message);
     delete CM_CACHE.cellar_actions; delete CM_CACHE.topping_log;
@@ -5321,7 +5326,7 @@ function CmWork() {
             (cmCan('wo_manage') ? cmBtn('Cancel order', function() { setStatus(o, 'Cancelled'); }, false, false) : null)) : cmE('div', {style:{display:'flex', gap:8, marginTop:8}}, o.status === 'Cancelled' ? cmBtn('Reopen', function() { setStatus(o, 'Open'); }, false, false) : null)));
     }));
 }
-const CM_MOVE_TYPES = [['rack','Rack or transfer'],['top','Topping'],['blend','Blend'],['loss','Loss (lees, spill, evaporation)'],['bottle','Bottled'],['add','Received or added'],['fix','Correction']];
+const CM_MOVE_TYPES = [['count','Physical count (set to measured)'],['rack','Rack or transfer'],['top','Topping'],['blend','Blend'],['loss','Loss (lees, spill, evaporation)'],['bottle','Bottled'],['add','Received or added'],['fix','Correction']];
 function cmMoveLabel(t) { const f = CM_MOVE_TYPES.filter(function(x) { return x[0] === t; })[0]; return f ? f[1] : 'Move'; }
 function CmVolumes() {
   const sD = React.useState(null), D = sD[0], setD = sD[1];
@@ -5349,6 +5354,16 @@ function CmVolumes() {
   const hasFrom = F.type !== 'add'; const hasTo = ['rack','top','blend','add','fix'].indexOf(F.type) !== -1;
   const save = function() { setErr(''); setMsg(''); Promise.resolve().then(async function() {
     const from = hasFrom ? F.from.trim() : ''; const to = hasTo ? F.to.trim() : ''; const g = Number(F.gal);
+    if (F.type === 'count') {
+      if (!from || names.indexOf(from) === -1) throw new Error('Pick the vessel you measured from the list.');
+      if (F.gal === '' || isNaN(g) || g < 0) throw new Error('Enter the measured gallons.');
+      const have = nowOf(from) || 0; const diff = Math.round((g - have) * 100) / 100;
+      if (Math.abs(diff) < 0.05) { setMsg(from + ' matches the ledger (' + f1(have) + ' gal). Nothing to change.'); return; }
+      const org0 = await cmOrg(); const u0 = await supa.auth.getUser();
+      const rc = await supa.schema('cellarmate').from('volume_moves').insert({organization_id:org0, moved_on:F.date, move_type:'fix', from_vessel:diff < 0 ? from : null, to_vessel:diff > 0 ? from : null, gallons:Math.abs(diff), note:'Physical count: measured ' + g + ' gal (ledger had ' + f1(have) + ')' + (F.note.trim() ? '. ' + F.note.trim() : ''), entered_by:(u0.data && u0.data.user && u0.data.user.email) || null});
+      if (rc.error) throw new Error(rc.error.message);
+      setMsg('Count saved: ' + from + ' set to ' + g + ' gal (' + (diff > 0 ? '+' : '') + diff + ' gal against the ledger, recorded as an inventory ' + (diff > 0 ? 'gain' : 'loss') + ').'); setF(Object.assign({}, F, {gal:'', note:''})); setTick(tick + 1); return;
+    }
     if (!F.date) throw new Error('Pick a date.');
     if (F.gal === '' || isNaN(g) || g <= 0) throw new Error('Enter the gallons moved as a number above zero.');
     if (['rack','top','blend'].indexOf(F.type) !== -1 && (!from || !to)) throw new Error('Pick both the vessel the wine came from and the one it went to.');
@@ -6063,6 +6078,108 @@ function CmOfflinePanel() {
   if (document.body) mount(); else document.addEventListener('DOMContentLoaded', mount);
 })();
 
+/* == CELLARMATE MODULE 15: supplies, lots and traceability == */
+function cmParseTabs(tab, grams) {
+  const out = {n5:0, n2:0}; const x = String.fromCharCode(215);
+  if (tab && String(tab).indexOf(x) !== -1) { String(tab).split('+').forEach(function(p) { const q = p.trim().split(x); const n = parseInt(q[0], 10), s = parseInt(q[1], 10); if (s === 5) out.n5 += n || 0; if (s === 2) out.n2 += n || 0; }); return out; }
+  if (grams != null && Number(grams) > 0) { const t = cmTabletsFor(Number(grams)); return cmParseTabs(t.tab, null); }
+  return out;
+}
+async function cmLogTabletUses(actions) {
+  const so2 = (actions || []).filter(function(a) { return a.action_type === 'so2' && a.grams != null && Number(a.grams) > 0; });
+  if (!so2.length) return 0;
+  let sup = [], lots = [];
+  try { sup = await cmFetch('supplies'); lots = await cmFetch('supply_lots'); } catch (e) { return 0; }
+  const s2 = sup.filter(function(s) { return s.code === 'OENOSTERY2'; })[0]; const s5 = sup.filter(function(s) { return s.code === 'OENOSTERY5'; })[0];
+  const latest = function(s) { if (!s) return null; const l = lots.filter(function(x) { return x.supply_id === s.id; }).sort(function(a, b) { return String(b.received_on) < String(a.received_on) ? -1 : 1; })[0]; return l ? l.id : null; };
+  const recs = [];
+  so2.forEach(function(a) { const t = cmParseTabs(a.tab, a.grams);
+    if (t.n5 && s5) recs.push({organization_id:a.organization_id, supply_id:s5.id, supply_lot_id:latest(s5), used_on:a.done_on, qty:t.n5, unit:'tablet', vintage:a.vintage, barrel:a.barrel, action_id:a.id, note:'Logged with the SO2 addition', entered_by:CM_ME.full_name || null});
+    if (t.n2 && s2) recs.push({organization_id:a.organization_id, supply_id:s2.id, supply_lot_id:latest(s2), used_on:a.done_on, qty:t.n2, unit:'tablet', vintage:a.vintage, barrel:a.barrel, action_id:a.id, note:'Logged with the SO2 addition', entered_by:CM_ME.full_name || null}); });
+  if (!recs.length) return 0;
+  const r = await supa.schema('cellarmate').from('supply_uses').insert(recs);
+  delete CM_CACHE.supply_uses;
+  return r.error ? 0 : recs.length;
+}
+function cmSupplyStock(s, lots, uses, counts) {
+  const upp = s.units_per_pack == null ? null : Number(s.units_per_pack);
+  const myLots = lots.filter(function(l) { return l.supply_id === s.id; }); const myUses = uses.filter(function(u) { return u.supply_id === s.id; });
+  const cnt = counts.filter(function(c) { return c.supply_id === s.id; }).sort(function(a, b) { return String(b.counted_on) < String(a.counted_on) ? -1 : 1; })[0];
+  const packs = myLots.reduce(function(t, l) { return t + Number(l.packs || 0); }, 0);
+  const used = myUses.reduce(function(t, u) { return t + Number(u.qty || 0); }, 0);
+  let onHand = null, basis = '';
+  if (cnt) { const after = myLots.filter(function(l) { return String(l.received_on) > String(cnt.counted_on); }); const usedAfter = myUses.filter(function(u) { return String(u.used_on) >= String(cnt.counted_on); }).reduce(function(t, u) { return t + Number(u.qty || 0); }, 0);
+    if (upp != null || !after.length) { onHand = Number(cnt.qty) + after.reduce(function(t, l) { return t + Number(l.packs || 0) * (upp || 0); }, 0) - usedAfter; basis = 'count on ' + cnt.counted_on; } }
+
+  return {upp:upp, packs:packs, used:used, onHand:onHand, basis:basis, lots:myLots, uses:myUses, last:myLots.map(function(l) { return l.received_on; }).sort().pop()};
+}
+function cmQtyText(n, unit) { if (n == null) return ''; const v = Math.round(n * 100) / 100; if (unit === 'g' && Math.abs(v) >= 1000) return (Math.round(v / 100) / 10).toLocaleString() + ' kg'; return v.toLocaleString() + ' ' + unit + (unit === 'g' || Math.abs(v) === 1 ? '' : 's'); }
+function CmSupplies() {
+  const sD = React.useState(null), D = sD[0], setD = sD[1];
+  const sT = React.useState(0), tick = sT[0], setTick = sT[1];
+  const sO = React.useState(null), openId = sO[0], setOpenId = sO[1];
+  const sF = React.useState({mode:'', supply:'', lot:'', qty:'', date:today(), inv:'', barrels:'', vintage:'2026', note:''}), F = sF[0], setF = sF[1];
+  const sE = React.useState(''), err = sE[0], setErr = sE[1];
+  const sM = React.useState(''), msg = sM[0], setMsg = sM[1];
+  const db = function() { return supa.schema('cellarmate'); };
+  React.useEffect(function() { let live = true; Promise.all([cmFresh('supplies'), cmFresh('supply_lots'), cmFresh('supply_uses'), cmFresh('supply_counts')]).then(function(a) { if (live) setD({sup:a[0], lots:a[1], uses:a[2], counts:a[3]}); }).catch(function(e) { if (live) { setD({sup:[], lots:[], uses:[], counts:[]}); setErr(e.message); } }); return function() { live = false; }; }, [tick]);
+  if (!D) return cmE('div', {style:{textAlign:'center', color:C.textDim, padding:30}}, 'Loading...');
+  const inp = Object.assign({}, cmSel, {minWidth:0});
+  const set = function(k, v) { const o = Object.assign({}, F); o[k] = v; if (k === 'supply') o.lot = ''; setF(o); };
+  const card = {background:C.card, border:'1px solid ' + C.cardBorder, borderRadius:10, padding:'10px 12px', marginBottom:8};
+  const cats = cmUniq(D.sup.map(function(s) { return s.category; }));
+  const sel = D.sup.filter(function(s) { return String(s.id) === String(F.supply); })[0];
+  const lotsOf = function(s) { return D.lots.filter(function(l) { return s && l.supply_id === s.id; }).sort(function(a, b) { return String(b.received_on) < String(a.received_on) ? -1 : 1; }); };
+  const act = function(fn, ok) { setErr(''); setMsg(''); Promise.resolve().then(fn).then(function() { setMsg(ok); setF(Object.assign({}, F, {mode:'', qty:'', inv:'', barrels:'', note:''})); setTick(tick + 1); }).catch(function(e) { setErr(e.message); }); };
+  const save = function() {
+    if (!sel) { setErr('Pick a product.'); return; } const q = Number(F.qty); if (F.qty === '' || isNaN(q) || (F.mode !== 'count' && q <= 0) || q < 0) { setErr('Enter the quantity as a number.'); return; }
+    if (F.mode === 'recv') act(async function() { const r = await db().from('supply_lots').insert({organization_id:sel.organization_id, supply_id:sel.id, lot_no:F.lot.trim() || null, received_on:F.date, packs:q, supplier:'', invoice:F.inv.trim() || null, notes:F.note.trim() || null}); if (r.error) throw new Error(r.error.message); }, 'Recorded ' + F.qty + ' received for ' + sel.name + '.');
+    else if (F.mode === 'count') act(async function() { const r = await db().from('supply_counts').insert({organization_id:sel.organization_id, supply_id:sel.id, counted_on:F.date, qty:q, note:F.note.trim() || null, entered_by:CM_ME.full_name || null}); if (r.error) throw new Error(r.error.message); }, 'Stock count saved for ' + sel.name + '.');
+    else act(async function() { const bs = F.barrels.split(',').map(function(b) { return b.trim(); }).filter(Boolean); const list = bs.length ? bs : [null];
+      const r = await db().from('supply_uses').insert(list.map(function(b) { return {organization_id:sel.organization_id, supply_id:sel.id, supply_lot_id:F.lot ? Number(F.lot) : null, used_on:F.date, qty:q, unit:sel.unit, vintage:b ? Number(F.vintage) : null, barrel:b, note:F.note.trim() || null, entered_by:CM_ME.full_name || null}; })); if (r.error) throw new Error(r.error.message); }, 'Recorded the use of ' + sel.name + (F.barrels ? ' in ' + F.barrels : '') + '.');
+  };
+  const setUpp = function(s, v) { const n = v === '' ? null : Number(v); if (n != null && (isNaN(n) || n <= 0)) { setErr('Units per pack must be a number above zero.'); return; } act(async function() { const r = await db().from('supplies').update({units_per_pack:n}).eq('id', s.id); if (r.error) throw new Error(r.error.message); }, 'Saved ' + (n == null ? 'no' : n) + ' ' + s.unit + 's per pack for ' + s.name + '.'); };
+  const rows = []; const trace = [];
+  D.sup.forEach(function(s) { const k = cmSupplyStock(s, D.lots, D.uses, D.counts); rows.push({b:s.name, cat:s.category, recv:k.upp != null ? cmQtyText(k.packs * k.upp, s.unit) : k.packs + ' pack' + (k.packs === 1 ? '' : 's'), used:cmQtyText(k.used, s.unit), hand:k.onHand == null ? 'count needed' : cmQtyText(k.onHand, s.unit), last:k.last || ''});
+    k.lots.forEach(function(l) { const us = k.uses.filter(function(u) { return u.supply_lot_id === l.id; }); trace.push({b:s.name, lot:l.lot_no || 'not written', recv:l.received_on || '', inv:l.invoice || '', barrels:cmUniq(us.map(function(u) { return u.barrel ? (u.vintage ? String(u.vintage).slice(2) + '-' : '') + u.barrel : null; }).filter(Boolean)).join(', ')}); }); });
+  const form = !F.mode ? null : cmE('div', {style:Object.assign({}, card, {border:'1px solid ' + C.accent})},
+    cmE('div', {style:{fontSize:14, fontWeight:800, marginBottom:8}}, F.mode === 'recv' ? 'Record supplies received' : F.mode === 'count' ? 'Record a stock count' : 'Record a use'),
+    cmE('div', {style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8}},
+      cmE('select', {value:F.supply, onChange:function(e) { set('supply', e.target.value); }, style:inp}, [cmE('option', {key:'', value:''}, 'Product...')].concat(D.sup.map(function(s) { return cmE('option', {key:s.id, value:String(s.id)}, s.name); }))),
+      cmE('input', {type:'date', value:F.date, onChange:function(e) { set('date', e.target.value); }, style:inp}),
+      F.mode === 'recv' ? cmE('input', {value:F.lot, onChange:function(e) { set('lot', e.target.value); }, placeholder:'Lot number', style:inp})
+        : F.mode === 'use' ? cmE('select', {value:F.lot, onChange:function(e) { set('lot', e.target.value); }, style:inp}, [cmE('option', {key:'', value:''}, 'Lot (latest if blank)')].concat(lotsOf(sel).map(function(l) { return cmE('option', {key:l.id, value:String(l.id)}, (l.lot_no || 'no lot') + ' (' + l.received_on + ')'); }))) : cmE('div', null),
+      cmE('input', {value:F.qty, inputMode:'decimal', onChange:function(e) { set('qty', e.target.value); }, placeholder:F.mode === 'recv' ? (sel && sel.units_per_pack === 1 ? 'Amount in ' + sel.unit + 's' : 'Packs received') : F.mode === 'count' ? 'On hand now, in ' + (sel ? sel.unit + 's' : 'units') : (sel ? sel.unit + 's per barrel' : 'Amount per barrel'), style:inp}),
+      F.mode === 'recv' ? cmE('input', {value:F.inv, onChange:function(e) { set('inv', e.target.value); }, placeholder:'Invoice (optional)', style:inp}) : null,
+      F.mode === 'use' ? cmE('input', {value:F.barrels, onChange:function(e) { set('barrels', e.target.value); }, placeholder:'Barrels, for example 26-078, 26-090', style:inp}) : null,
+      F.mode === 'use' ? cmE('select', {value:F.vintage, onChange:function(e) { set('vintage', e.target.value); }, style:inp}, ['2026','2025','2024'].map(function(v) { return cmE('option', {key:v, value:v}, v); })) : null,
+      cmE('input', {value:F.note, onChange:function(e) { set('note', e.target.value); }, placeholder:'Note (optional)', style:inp})),
+    cmE('div', {style:{display:'flex', gap:8}}, cmBtn('Save', save, true, false), cmBtn('Cancel', function() { setF(Object.assign({}, F, {mode:''})); }, false, false)));
+  return cmE(React.Fragment, null,
+    cmNote('Every additive and lab supply with its lots. SO2 tablets are logged automatically each time an SO2 addition is saved, so each tablet lot can be traced to the barrels it went into. Record tartaric, ML bacteria and other additions here.'),
+    err ? cmNote(err, C.red) : null, msg ? cmNote(msg, C.green) : null,
+    cmCan('log_work') ? cmE('div', {style:{display:'flex', gap:8, marginBottom:10, flexWrap:'wrap'}}, cmBtn('+ Use', function() { set('mode', 'use'); }, true, false), cmBtn('+ Received', function() { set('mode', 'recv'); }, false, false), cmBtn('Stock count', function() { set('mode', 'count'); }, false, false)) : null,
+    form,
+    cmE(CmExport, {title:'Supplies on hand', sub:'Received, used and on hand', file:'CellarMate_supplies', cols:[['b','Product'],['cat','Type'],['recv','Received'],['used','Logged as used'],['hand','On hand'],['last','Last received']], groups:[{title:'', rows:rows}]}),
+    cats.map(function(cat) { return cmE('div', {key:cat}, cmE('div', {style:cmLbl}, cat),
+      D.sup.filter(function(s) { return s.category === cat; }).map(function(s) { const k = cmSupplyStock(s, D.lots, D.uses, D.counts); const open = openId === s.id;
+        return cmE('div', {key:s.id, style:card},
+          cmE('div', {onClick:function() { setOpenId(open ? null : s.id); }, style:{cursor:'pointer'}},
+            cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}}, cmE('span', {style:{fontWeight:800, fontSize:14}}, s.name), cmE('span', {style:{fontSize:12, fontWeight:800, color:k.onHand == null ? C.yellow : k.onHand <= 0 ? C.red : C.green, whiteSpace:'nowrap'}}, k.onHand == null ? 'count needed' : cmQtyText(k.onHand, s.unit) + ' on hand')),
+            cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, (s.maker ? s.maker + CM_MID : '') + 'received ' + (k.upp != null ? cmQtyText(k.packs * k.upp, s.unit) : k.packs + ' pack' + (k.packs === 1 ? '' : 's')) + ' in ' + k.lots.length + ' lot' + (k.lots.length === 1 ? '' : 's') + CM_MID + 'logged as used ' + cmQtyText(k.used, s.unit) + (k.basis ? CM_MID + 'on hand from ' + k.basis : '')),
+            s.dose_note ? cmE('div', {style:{fontSize:11, color:C.textDim, marginTop:2}}, s.dose_note) : null),
+          !open ? null : cmE('div', {style:{marginTop:8}},
+            s.units_per_pack == null && cmCan('edit_data') ? cmE('div', {style:{display:'flex', gap:8, alignItems:'center', marginBottom:8, fontSize:12}}, cmE('span', null, s.unit + 's per pack:'), cmE('input', {defaultValue:'', placeholder:'for example 50', onBlur:function(e) { if (e.target.value) setUpp(s, e.target.value); }, style:Object.assign({}, inp, {maxWidth:140})})) : null,
+            k.lots.sort(function(a, b) { return String(b.received_on) < String(a.received_on) ? -1 : 1; }).map(function(l) { const us = k.uses.filter(function(u) { return u.supply_lot_id === l.id; }); const bs = cmUniq(us.map(function(u) { return u.barrel ? (u.vintage ? String(u.vintage).slice(2) + '-' : '') + u.barrel : null; }).filter(Boolean));
+              return cmE('div', {key:l.id, style:{borderTop:'1px solid ' + C.cardBorder, padding:'6px 0', fontSize:12}},
+                cmE('span', {style:{fontWeight:800}}, 'Lot ' + (l.lot_no || 'not written')), CM_MID + l.received_on + CM_MID + (s.units_per_pack === 1 ? cmQtyText(l.packs, s.unit) : l.packs + ' pack' + (Number(l.packs) === 1 ? '' : 's')) + (l.invoice ? CM_MID + l.invoice : '') + (l.notes ? CM_MID + l.notes : ''),
+                bs.length ? cmE('div', {style:{color:C.textMuted, marginTop:2}}, 'Went into: ' + bs.join(', ')) : null); })));
+      })); }),
+    cmE('div', {style:cmLbl}, 'Lot traceability'),
+    cmE(CmExport, {title:'Supply lot traceability', sub:'Which barrels each lot went into', file:'CellarMate_lot_traceability', cols:[['b','Product'],['lot','Lot'],['recv','Received'],['inv','Invoice'],['barrels','Barrels']], groups:[{title:'', rows:trace}]}),
+    cmNote('On hand is shown after a stock count, then follows what is received and logged as used. Past use was not logged, so received totals alone would overstate what is on the shelf. For SO2 tablets, also enter the tablets per pack once so new deliveries add the right number.'));
+}
+
 async function getSupaProfile(userId) {
   const me = await cmLoadAccess();
   if (me.loaded) return me.has_access ? {full_name:me.full_name, role_key:me.role_key, initials:me.initials, color:me.color, org_id:me.org_id} : {_noAccess:true, role_key:'readonly'};
@@ -6247,7 +6364,7 @@ function App() {
     React.createElement("div", {style: {background:C.bg,minHeight:"100vh",color:C.text,maxWidth:1100,margin:"0 auto",position:"relative",paddingBottom:84}}, !activeWinery&&(
         React.createElement("div", {style: {position:"fixed",inset:0,background:C.bg,zIndex:200,overflowY:"auto"}}, React.createElement("div", {style: {maxWidth:430,margin:"0 auto",padding:"32px 20px 40px"}}, React.createElement("div", {style: {textAlign:"center",marginBottom:32}}, React.createElement("div", {style: {fontSize:52,marginBottom:10}}, "🍷"), React.createElement("div", {style: {fontSize:26,fontWeight:900,color:C.text}}, "CellarMate"), React.createElement("div", {style: {fontSize:13,color:C.textMuted,marginTop:6,letterSpacing:0.5}}, "Wine Collective — Select your winery")), !showAddWinery?(
               React.createElement(React.Fragment, null, wineries.map(w=>(
-                  React.createElement("button", {key: w.id, onClick: ()=>{if(w.passcode && w.passcode.length > 0) {setPinEntry({wineryId:w.id, value:""});} else {setActiveWineryId(w.id);setShowAddUser(false);}}, style: {display:"flex",alignItems:"center",gap:16,background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:"16px 18px",marginBottom:12,cursor:"pointer",width:"100%",textAlign:"left"}}, React.createElement("div", {style: {width:52,height:52,borderRadius:14,background:C.accentDim,border:`1px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}, "🏡"), React.createElement("div", {style: {flex:1,minWidth:0}}, React.createElement("div", {style: {fontSize:17,fontWeight:800,color:C.text}}, w.name), React.createElement("div", {style: {fontSize:12,color:C.textMuted,marginTop:2}}, w.region), React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:3}}, w.users.length, "member", w.users.length!==1?"s":"", "·", w.lots.length, "lot", w.lots.length!==1?"s":"", "·", w.lots.reduce((s,l)=>s+l.gallons,0).toLocaleString(), "gal")), React.createElement("div", {style: {color:C.textDim,fontSize:20}}, "›"))
+                  React.createElement("button", {key: w.id, onClick: ()=>{if(w.passcode && w.passcode.length > 0) {setPinEntry({wineryId:w.id, value:""});} else {setActiveWineryId(w.id);setShowAddUser(false);}}, style: {display:"flex",alignItems:"center",gap:16,background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:"16px 18px",marginBottom:12,cursor:"pointer",width:"100%",textAlign:"left"}}, React.createElement("div", {style: {width:52,height:52,borderRadius:14,background:C.accentDim,border:`1px solid ${C.accent}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}, "🏡"), React.createElement("div", {style: {flex:1,minWidth:0}}, React.createElement("div", {style: {fontSize:17,fontWeight:800,color:C.text}}, w.name), React.createElement("div", {style: {fontSize:12,color:C.textMuted,marginTop:2}}, w.region), React.createElement("div", {style: {fontSize:11,color:C.textDim,marginTop:3}}, CM_DB.rows && CM_DB.rows.length ? ['2026','2025'].map(function(v) { return CM_DB.rows.filter(function(r) { return String(r.v) === v; }).length + ' barrels in ' + v; }).join(' · ') : (w.lots.length + ' lots'))), React.createElement("div", {style: {color:C.textDim,fontSize:20}}, "›"))
                 )), React.createElement("button", {onClick: ()=>setShowAddWinery(true), style: {width:"100%",background:"transparent",border:`1px dashed ${C.cardBorder}`,borderRadius:16,padding:"14px",color:C.accentLight,fontSize:14,fontWeight:700,cursor:"pointer",marginTop:4}}, "+ Add Winery to Collective"))
             ):(
               React.createElement("div", {style: {background:C.card,border:`1px solid ${C.cardBorder}`,borderRadius:16,padding:"20px"}}, React.createElement("div", {style: {fontSize:15,fontWeight:800,color:C.text,marginBottom:16}}, "New Winery"), [
