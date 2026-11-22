@@ -186,6 +186,24 @@
     var sU = React.useState(false), showUn = sU[0], setShowUn = sU[1];
     var sBusy = React.useState(false), busy = sBusy[0], setBusy = sBusy[1];
     var MV = window.cmBarrelMoves;
+    var LB = window.cmBarrelLabels;
+    var sL = React.useState(false), showLabels = sL[0], setShowLabels = sL[1];
+    var sLs = React.useState('placed'), labelSet = sLs[0], setLabelSet = sLs[1];
+    var sLz = React.useState('small'), labelSize = sLz[0], setLabelSize = sLz[1];
+    var sHi = React.useState(null), selHist = sHi[0], setSelHist = sHi[1];
+    React.useEffect(function () {
+      var f = window.CM_MAP_FOCUS; if (!D || !f) return;
+      window.CM_MAP_FOCUS = null;
+      var p = D.filter(function (x) { return x.barrel && x.vintage === f.vintage && x.barrel === f.barrel; })[0];
+      setView('layout'); setMoveMode(false);
+      if (p) { setArea(p.area === 'Pallets' ? 'Pallets' : p.area); setSel(p); setQ(p.barrel); setMsg('Opened from a barrel label.'); }
+      else setErr('Barrel ' + (f.vintage === 2025 ? '25-' : '') + f.barrel + ' is not on the map yet.');
+    }, [D]);
+    React.useEffect(function () {
+      var live = true; setSelHist(null);
+      if (sel && sel.barrel && LB) LB.history(sel).then(function (h) { if (live) setSelHist(h); }).catch(function () { if (live) setSelHist([]); });
+      return function () { live = false; };
+    }, [sel && sel.id]);
     var canMove = !!MV && (typeof cmCan !== 'function' || cmCan('moves'));
     React.useEffect(function () {
       var live = true;
@@ -337,7 +355,28 @@
       sel.st ? cmE('div', { style: { fontSize: 12, marginTop: 4 } }, [sel.st.lot_name || sel.st.vineyard, sel.st.owner, sel.st.wine_type, sel.st.ph_latest ? 'pH ' + sel.st.ph_latest : null].filter(Boolean).join(' · ')) : null,
       sel.act ? cmE('div', { style: { fontSize: 12, color: C.accentLight, marginTop: 2 } }, sel.act + (sel.g != null ? ' (' + sel.g + ' g)' : '')) : null,
       sel.note ? cmE('div', { style: small }, 'Map note: ' + sel.note) : null,
-      sel.flag ? cmE('div', { style: { fontSize: 12, color: C.orange } }, sel.flag) : null) : null;
+      sel.flag ? cmE('div', { style: { fontSize: 12, color: C.orange } }, sel.flag) : null,
+      sel.barrel ? cmE('div', { style: { marginTop: 6 } }, cmE('div', { style: Object.assign({}, small, { fontWeight: 700 }) }, 'History'),
+        selHist === null ? cmE('div', { style: small }, 'Loading...') : !selHist.length ? cmE('div', { style: small }, 'Nothing logged yet.') :
+          selHist.map(function (h, i) { return cmE('div', { key: i, style: { fontSize: 11, display: 'flex', gap: 8 } }, cmE('span', { style: { color: C.textDim, minWidth: 74 } }, h.d), cmE('span', null, h.t)); })) : null) : null;
+    var labelItems = function () {
+      var placed = D.filter(function (p) { return p.barrel; });
+      var pick = labelSet === '2025' ? placed.filter(function (p) { return p.vintage === 2025; }) : labelSet === '2026' ? placed.filter(function (p) { return p.vintage === 2026; })
+        : labelSet === 'found' ? placed.filter(function (p) { return q && (norm(p.barrel).indexOf(norm(q)) === 0 || lotName(p).toLowerCase().indexOf(q.toLowerCase()) > -1); })
+        : labelSet === 'relabel' ? placed.filter(function (p) { return p.vintage === 2026 && ['26-072', '26-057', '26-074', '26-120', '26-142'].indexOf(p.barrel) > -1; })
+        : labelSet === 'check' ? placed.filter(function (p) { return p.flag; }) : placed;
+      return pick.slice().sort(function (a, b) { return walkKey(a) < walkKey(b) ? -1 : 1; }).map(function (p) { return Object.assign({}, p, { where: where(p) }); });
+    };
+    var labelPanel = showLabels && LB ? cmE('div', { style: Object.assign({}, card, { borderColor: C.accentLight }) },
+      cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Barrel labels with QR codes'),
+      cmE('div', { style: small }, 'Scanning a label with a phone camera opens that barrel here: where it is, what to do next, and its history.'),
+      cmE('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' } },
+        cmE('select', { value: labelSet, onChange: function (e) { setLabelSet(e.target.value); }, style: Object.assign({}, cmSel, { flex: '1 1 200px' }) },
+          [['placed', 'Every barrel on the map'], ['2026', '2026 barrels'], ['2025', '2025 barrels'], ['found', 'Barrels matching the search box'], ['relabel', 'Relabel list (72, 57, 74, 120, 142)'], ['check', 'Barrels marked to check']].map(function (o) { return cmE('option', { key: o[0], value: o[0] }, o[1]); })),
+        cmE('select', { value: labelSize, onChange: function (e) { setLabelSize(e.target.value); }, style: Object.assign({}, cmSel, { flex: '1 1 200px' }) },
+          [['small', 'Small: 2.625 x 1 in, 30 per page'], ['large', 'Large: 4 x 2 in, 10 per page']].map(function (o) { return cmE('option', { key: o[0], value: o[0] }, o[1]); })),
+        cmE('button', { onClick: function () { var it = labelItems(); if (!it.length) { setErr('No barrels in that set.'); return; } setErr(''); LB.printLabels(it, labelSize).catch(function (e) { setErr(e.message); }); },
+          style: { background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, 'Print ' + labelItems().length + ' labels'))) : null;
     var legendKeys = by === 'step' ? STEP_ORDER.concat(['client']) : ['red', 'white', 'rose', 'client', 'unk'];
     var legendNames = { red: 'Red', white: 'White', rose: 'Rose', client: 'Client', unk: 'Lot unknown' };
     var placed = D.filter(function (p) { return p.barrel; }).length;
@@ -347,7 +386,8 @@
         cmE('div', { style: { flex: '3 1 340px' } }, cmSeg([['layout', 'Layout'], ['list', 'List'], ['lots', 'By wine'], ['work', 'Work list']], view, function (v) { setView(v); setSel(null); })),
         cmE('input', { value: q, onChange: function (e) { setQ(e.target.value.trim()); }, placeholder: view === 'lots' ? 'Find wine' : 'Find barrel', style: Object.assign({}, cmSel, { flex: '1 1 120px' }) }),
         canMove && view === 'layout' ? cmE('button', { onClick: function () { setMoveMode(!moveMode); setPick(null); setTarget(null); setErr(''); setMsg(''); setSel(null); }, style: { background: moveMode ? C.orange : C.card, color: moveMode ? '#fff' : C.accentLight, border: '1px solid ' + (moveMode ? C.orange : C.cardBorder), borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, moveMode ? 'Done moving' : 'Move barrels') : null,
-        cmE('button', { onClick: function () { printView(view, D, by); }, style: { background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, 'Print')),
+        cmE('button', { onClick: function () { printView(view, D, by); }, style: { background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, 'Print'),
+        LB ? cmE('button', { onClick: function () { setShowLabels(!showLabels); }, style: { background: showLabels ? C.accentLight : C.card, color: showLabels ? '#fff' : C.accentLight, border: '1px solid ' + C.cardBorder, borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, 'Labels') : null),
       msg ? cmE('div', { style: { color: C.green || '#22c55e', fontSize: 12, marginBottom: 6, fontWeight: 700 } }, msg) : null,
       view === 'layout' ? cmE('div', { style: { display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' } },
         cmE('div', { style: { flex: '2 1 260px' } }, cmSeg([['EBS', 'EBS racks'], ['Rows', 'Floor rows'], ['Pallets', 'Pallets']], area, function (a) { setArea(a); setSel(null); })),
@@ -357,7 +397,7 @@
       }).concat([cmE('span', { key: 'fl', style: { fontSize: 10, border: '2px solid ' + C.orange, borderRadius: 4, padding: '1px 6px' } }, 'Check')])) : null,
       cmE('div', { style: Object.assign({}, small, { marginBottom: 8 }) }, placed + ' barrels placed · positions as of ' + ((D[0] && D[0].as_of) || '') +
         (view === 'work' ? ' · grouped by next step, in walking order (EBS bottom to top, then rows)' : view === 'lots' ? ' · tap a barrel to see it on the layout' : '')),
-      movePanel, detail, body);
+      labelPanel, movePanel, detail, body);
   }
 
   window.cmMapIndex = cmMapIndex; window.cmMapLots = cmMapLots; window.cmMapWork = cmMapWork; window.cmMapPrintHtml = cmMapPrintHtml;

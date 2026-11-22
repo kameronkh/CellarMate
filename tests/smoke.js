@@ -84,6 +84,16 @@ window.cmSmoke = async function(opts) {
   const pricedTotal = priced.reduce(function(t, a) { const u = uc[a.supply_id || a.likely_supply_id]; return t + (u && u.perUnit != null && u.unit === 'g' ? u.perUnit * Number(a.grams) : 0); }, 0);
   const lotTotal = lc.reduce(function(t, r) { return t + r.cost; }, 0);
   ok('lot costs add up to no more than priced additions', lotTotal <= pricedTotal + 0.01, lotTotal.toFixed(2) + ' of ' + pricedTotal.toFixed(2));
+  /* 1h. barrel labels and scan links */
+  const LBt = window.cmBarrelLabels;
+  ok('label helpers loaded', !!(LBt && LBt.printLabels && LBt.deepBarrel));
+  ok('barrel codes parse', JSON.stringify(LBt.parseCode('25-0183')) === JSON.stringify({vintage:2025, barrel:'183'}) && JSON.stringify(LBt.parseCode('26-7')) === JSON.stringify({vintage:2026, barrel:'26-007'}) && LBt.parseCode('x12') === null);
+  const p142 = bm.filter(function(p) { return p.barrel === '26-142'; })[0];
+  ok('label link opens the barrel', /\?barrel=26-142$/.test(LBt.linkFor(p142, 'https://example.test/')));
+  const lh = LBt.labelsHtml(bm.filter(function(p) { return p.barrel; }).slice(0, 7).map(function(p) { return Object.assign({}, p, {where:'x'}); }), 'small', function() { return 'data:,'; });
+  ok('label sheet has one label per barrel', (lh.match(/class="l"/g) || []).length === 7);
+  const h97 = await LBt.history({vintage:2026, barrel:'26-097'});
+  ok('barrel history finds the Nov 20 SO2 add on 26-097', h97.some(function(x) { return /2026-11-20/.test(x.d); }), JSON.stringify(h97.slice(0,3)));
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });

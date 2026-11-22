@@ -18,6 +18,7 @@
   <script src="/modules/barrelmoves.js"></script>
   <script src="/modules/barrelmap.js"></script>
   <script src="/modules/lotcost.js"></script>
+  <script src="/modules/barrellabels.js"></script>
     <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0f1117; font-family: 'Inter', system-ui, sans-serif; }
@@ -5819,6 +5820,7 @@ function App() {
   const settings = activeWinery?.settings || DEFAULT_SETTINGS;
   // ── Auth ──────────────────────────────────────────────────────────────
   useEffect(() => { saveWineries(wineries); const tw = wineries.find(w => w.id === 1); if (tw && CM_LOTS.ready) cmLotsSync(tw.lots); }, [wineries]);
+  useEffect(() => { const LB = window.cmBarrelLabels; const b = LB && LB.deepBarrel(); if (!b || !activeUserId) return; window.CM_MAP_FOCUS = b; CM_PRESET = {tab:'map'}; LB.clearDeep(); go(SCREENS.reports); }, [activeUserId]);
   useEffect(() => { if (!authSession) return; cmLoadDbLots().then(res => { setWineries(prev => prev.map(w => w.id === 1 ? Object.assign({}, w, { lots: res }) : w)); }).catch(e => { CM_LOTS.err = 'load: ' + String(e && e.message || e); }); }, [authSession && authSession.id]);
 
   useEffect(() => {
