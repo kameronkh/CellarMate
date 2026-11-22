@@ -211,6 +211,6 @@
           })()) : null); })) : null);
   }
 
-  window.cmParseEts = cmParseEts; window.cmLinesFromItems = linesFromItems; window.cmEtsSampleToBarrel = sampleToBarrel;
+  window.cmReadDocFile = readFile; window.cmParseEts = cmParseEts; window.cmLinesFromItems = linesFromItems; window.cmEtsSampleToBarrel = sampleToBarrel;
   window.CmLabUpload = CmLabUpload;
 })();

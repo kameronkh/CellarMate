@@ -138,6 +138,23 @@ window.cmSmoke = async function(opts) {
   ok('Today SO2 adds match the map work list', tp.add.length === (cmMapWork(bm).filter(function(g) { return g.step === 'add'; })[0] || {barrels:[]}).barrels.length);
   ok('Today asks to re-test 26-097 after the Nov 20 add', tp.retest.some(function(x) { return x.code === '26-097'; }), JSON.stringify(tp.retest.slice(0,4).map(function(x) { return x.code; })));
   ok('Today day sheet prints', cmTodaySheetHtml(tp).indexOf('day sheet 2026-11-24') > -1);
+  /* 1m. photos and documents */
+  const FX = window.cmFiles;
+  ok('files module loaded', !!(FX && window.CmFilesFor && CM_MODULES.files));
+  const fr = FX.findRefs('26-142 leak at bung, topped from SST4 and K3; F7 lees; 25-183 on 2026-11-22', {fermVintage:2026, lots:[]});
+  ok('codes in text become links', JSON.stringify(fr.map(function(l) { return l.link_type + ':' + l.ref; })) === JSON.stringify(['barrel:26-142','barrel:183','vessel:SST4','vessel:K-3','fermenter:F7']), JSON.stringify(fr));
+  ok('a lab report is not linked to the facility', !FX.findRefs('ETS Laboratories - Oregon Facility, 214 W. Hancock Street', null).some(function(l) { return l.link_type === 'facility'; }) && FX.findRefs('forklift hit the drain cover at Press and Barrel', null).some(function(l) { return l.link_type === 'facility'; }));
+  ok('dates are not read as barrels', FX.findRefs('taken 2026-11-22 at 11-25', null).length === 0);
+  ok('document kind read from its text', FX.guessCategory('a.pdf', 'ETS Laboratories free sulfur dioxide', false) === 'lab' && FX.guessCategory('b.pdf', 'Crush2Cellar invoice subtotal', false) === 'invoice' && FX.guessCategory('26-142 leak.jpg', '', true) === 'issue');
+  ok('barrel label link read', JSON.stringify(FX.qrToLink('https://cellar-tracker.vercel.app/?barrel=26-142')) === JSON.stringify({link_type:'barrel', vintage:2026, ref:'26-142', from:'QR code on the barrel label'}));
+  try {
+    await new Promise(function(res, rej) { if (window.QRCode) return res(); const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    const dq = document.createElement('div'); document.body.appendChild(dq); new QRCode(dq, {text:'https://cellar-tracker.vercel.app/?barrel=25-183', width:320, height:320});
+    const cq = document.createElement('canvas'); cq.width = 600; cq.height = 600; const g = cq.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0,0,600,600); g.drawImage(dq.querySelector('canvas'), 140, 140); dq.remove();
+    const blob = await new Promise(function(r) { cq.toBlob(r, 'image/png'); });
+    const rd = await FX.readAny(new File([blob], 'IMG_0001.png', {type:'image/png'}), null);
+    ok('a photo of a barrel label links to that barrel', rd.links.some(function(l) { return l.link_type === 'barrel' && l.ref === '183' && l.vintage === 2025; }) && !!rd.thumb, JSON.stringify(rd.links) + ' ' + rd.notes.join(' '));
+  } catch (e) { ok('a photo of a barrel label links to that barrel', false, String(e)); }
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -158,7 +175,7 @@ window.cmSmoke = async function(opts) {
   const g = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Kameron'; })[0];
   if (g && /logging today/.test(document.body.innerText.slice(0, 300))) { g.click(); await wait(1500); }
   for (const n of ['Cellar', 'Lots', 'Health', 'Schedule', 'Reports']) { nav(n); await wait(1600); ok('screen ' + n, document.body.innerText.length > 500 && !bad(), bad()); }
-  for (const t of ['Today', 'Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
+  for (const t of ['Today', 'Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Files', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
     if (!click(t, 'button')) continue; await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }

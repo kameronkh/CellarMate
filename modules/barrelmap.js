@@ -358,7 +358,8 @@
       sel.flag ? cmE('div', { style: { fontSize: 12, color: C.orange } }, sel.flag) : null,
       sel.barrel ? cmE('div', { style: { marginTop: 6 } }, cmE('div', { style: Object.assign({}, small, { fontWeight: 700 }) }, 'History'),
         selHist === null ? cmE('div', { style: small }, 'Loading...') : !selHist.length ? cmE('div', { style: small }, 'Nothing logged yet.') :
-          selHist.map(function (h, i) { return cmE('div', { key: i, style: { fontSize: 11, display: 'flex', gap: 8 } }, cmE('span', { style: { color: C.textDim, minWidth: 74 } }, h.d), cmE('span', null, h.t)); })) : null) : null;
+          selHist.map(function (h, i) { return cmE('div', { key: i, style: { fontSize: 11, display: 'flex', gap: 8 } }, cmE('span', { style: { color: C.textDim, minWidth: 74 } }, h.d), cmE('span', null, h.t)); })) : null,
+      sel.barrel && window.CmFilesFor ? cmE(window.CmFilesFor, { type: 'barrel', vintage: sel.vintage, refCode: sel.barrel, org: sel.organization_id }) : null) : null;
     var labelItems = function () {
       var placed = D.filter(function (p) { return p.barrel; });
       var pick = labelSet === '2025' ? placed.filter(function (p) { return p.vintage === 2025; }) : labelSet === '2026' ? placed.filter(function (p) { return p.vintage === 2026; })
