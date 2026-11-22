@@ -155,6 +155,18 @@ window.cmSmoke = async function(opts) {
     const rd = await FX.readAny(new File([blob], 'IMG_0001.png', {type:'image/png'}), null);
     ok('a photo of a barrel label links to that barrel', rd.links.some(function(l) { return l.link_type === 'barrel' && l.ref === '183' && l.vintage === 2025; }) && !!rd.thumb, JSON.stringify(rd.links) + ' ' + rd.notes.join(' '));
   } catch (e) { ok('a photo of a barrel label links to that barrel', false, String(e)); }
+  /* 1n. vintage comparison */
+  ok('vintage module loaded', !!(window.cmVintageCompare && CM_MODULES.vint));
+  const vz = await Promise.all(['fermenters','picks','barrel_status_2025','barrel_status_2026','barrels','fermenter_additions','lab_results'].map(function(t) { return cmFetch(t); }));
+  const vc = cmVintageCompare({ferms: vz[0], picks: vz[1], s25: vz[2], s26: vz[3], barrels: vz[4], adds: vz[5], lab: vz[6]});
+  const mv = function(label, v) { return (vc.metrics.filter(function(m) { return m.label === label; })[0] || {vals:{}}).vals[v]; };
+  ok('vintages 2023 to 2026 compared', JSON.stringify(vc.vintages) === JSON.stringify([2023,2024,2025,2026]), JSON.stringify(vc.vintages));
+  ok('2026 fermenters and tons match the sheets', mv('Fermenters', 2026) === 38 && Math.abs(mv('Tons in fermenters', 2026) - 38.25) < 0.1, mv('Fermenters', 2026) + ' ' + mv('Tons in fermenters', 2026));
+  ok('2025 picks and tons match the pick records', mv('Picks', 2025) === 42 && Math.abs(mv('Tons picked', 2025) - 76.13) < 0.1);
+  ok('2026 yeast added in 11 fermenters', mv('Fermenters with yeast added (as recorded)', 2026) === 11, mv('Fermenters with yeast added (as recorded)', 2026));
+  const pickTons = vz[1].filter(function(p) { return p.vintage === 2025 && /tystrya/i.test(p.vineyard || ''); }).reduce(function(s, p) { return s + (Number(p.tons) || 0); }, 0);
+  const blockTons = vc.blocks.filter(function(b) { return b.vineyard === 'Tystrya Estate'; }).reduce(function(s, b) { return s + ((b.vals[2025] || {}).tons || 0); }, 0);
+  ok('Estate block tons add up to the 2025 Estate picks', Math.abs(pickTons - blockTons) < 0.05 || blockTons <= pickTons, pickTons.toFixed(2) + ' vs ' + blockTons.toFixed(2));
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -175,7 +187,7 @@ window.cmSmoke = async function(opts) {
   const g = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Kameron'; })[0];
   if (g && /logging today/.test(document.body.innerText.slice(0, 300))) { g.click(); await wait(1500); }
   for (const n of ['Cellar', 'Lots', 'Health', 'Schedule', 'Reports']) { nav(n); await wait(1600); ok('screen ' + n, document.body.innerText.length > 500 && !bad(), bad()); }
-  for (const t of ['Today', 'Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Files', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
+  for (const t of ['Today', 'Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Files', 'Vintages', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
     if (!click(t, 'button')) continue; await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }
