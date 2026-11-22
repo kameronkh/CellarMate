@@ -175,24 +175,58 @@
     var sS = React.useState(null), sel = sS[0], setSel = sS[1];
     var sQ = React.useState(''), q = sQ[0], setQ = sQ[1];
     var sE = React.useState(''), err = sE[0], setErr = sE[1];
+    var sR = React.useState({ s25: [], s26: [] }), raw = sR[0], setRaw = sR[1];
+    var sT = React.useState(0), tick = sT[0], setTick = sT[1];
+    var sM = React.useState(false), moveMode = sM[0], setMoveMode = sM[1];
+    var sP = React.useState(null), pick = sP[0], setPick = sP[1];
+    var sG = React.useState(null), target = sG[0], setTarget = sG[1];
+    var sN = React.useState(''), note = sN[0], setNote = sN[1];
+    var sMsg = React.useState(''), msg = sMsg[0], setMsg = sMsg[1];
+    var sH = React.useState(null), hist = sH[0], setHist = sH[1];
+    var sU = React.useState(false), showUn = sU[0], setShowUn = sU[1];
+    var sBusy = React.useState(false), busy = sBusy[0], setBusy = sBusy[1];
+    var MV = window.cmBarrelMoves;
+    var canMove = !!MV && (typeof cmCan !== 'function' || cmCan('moves'));
     React.useEffect(function () {
       var live = true;
       Promise.all([cmFetch('barrel_positions'), cmFetch('barrel_status_2025'), cmFetch('barrel_status_2026'), (typeof cmStatusRows === 'function' ? cmStatusRows() : Promise.resolve([])).catch(function () { return []; })])
-        .then(function (a) { if (live) setD(cmMapIndex(a[0], a[1], a[2], a[3])); })
+        .then(function (a) { if (live) { setRaw({ s25: a[1], s26: a[2] }); setD(cmMapIndex(a[0], a[1], a[2], a[3])); } })
         .catch(function (e) { if (live) { setErr(e.message); setD([]); } });
+      if (MV && moveMode) MV.recent(12).then(function (h) { if (live) setHist(h); }).catch(function () {});
       return function () { live = false; };
-    }, []);
+    }, [tick, moveMode]);
+    var runMove = function (fn, ok) {
+      setBusy(true); setErr(''); setMsg('');
+      Promise.resolve().then(fn).then(function () { setMsg(ok); setPick(null); setTarget(null); setNote(''); setSel(null); setTick(tick + 1); })
+        .catch(function (e) { var m = e.message || String(e); setErr(/^occupied:/.test(m) ? 'Spot is taken by ' + m.split(':')[1] + '.' : m); })
+        .then(function () { setBusy(false); });
+    };
+    var chooseSlot = function (slot) {
+      if (!moveMode || !pick) return;
+      setTarget(slot); setErr(''); setMsg('');
+    };
     if (!D) return cmE('div', { style: { textAlign: 'center', color: C.textDim, padding: 30 } }, 'Loading...');
     var small = { fontSize: 11, color: C.textDim };
     var card = { background: C.card, border: '1px solid ' + C.cardBorder, borderRadius: 10, padding: '10px 12px', marginBottom: 8 };
     var norm = function (s) { return String(s || '').replace(/^26-/, '').replace(/^0+/, ''); };
     var hit = function (p) { return q && p.barrel && norm(p.barrel) === norm(q); };
-    var box = function (p, key) {
-      if (!p) return cmE('div', { key: key, style: { minHeight: 34, border: '1px dashed ' + C.cardBorder, borderRadius: 6 } });
+    var dropProps = function (slot) {
+      return { onDragOver: function (e) { if (moveMode) e.preventDefault(); }, onDrop: function (e) { if (!moveMode) return; e.preventDefault(); chooseSlot(slot); } };
+    };
+    var isTarget = function (slot) { return target && slot && MV && MV.slotKey(target) === MV.slotKey(slot); };
+    var box = function (p, key, slot) {
+      if (!p) return cmE('div', Object.assign({ key: key, onClick: function () { chooseSlot(slot); },
+        style: { minHeight: 34, border: (isTarget(slot) ? '2px solid ' + C.accentLight : '1px dashed ' + C.cardBorder), borderRadius: 6, cursor: moveMode && pick ? 'pointer' : 'default', background: moveMode && pick ? 'rgba(139,92,246,0.08)' : 'transparent' } }, slot ? dropProps(slot) : {}));
       var isSel = sel && sel.id === p.id;
-      return cmE('div', { key: key, onClick: function () { setSel(isSel ? null : p); }, title: p.barrel || p.label,
-        style: { minHeight: 34, background: fillOf(p, by, DARK), borderRadius: 6, padding: '3px 4px', cursor: 'pointer', textAlign: 'center', lineHeight: 1.15,
-          border: '2px solid ' + (hit(p) ? C.accentLight : isSel ? '#fff' : p.flag ? C.orange : 'transparent') } },
+      var isPick = pick && pick.id === p.id;
+      var click = function () {
+        if (moveMode) { if (pick && !isPick) chooseSlot(slot || p); else { setPick(isPick ? null : p); setTarget(null); setErr(''); setMsg(''); } return; }
+        setSel(isSel ? null : p);
+      };
+      return cmE('div', Object.assign({ key: key, onClick: click, title: p.barrel || p.label, draggable: !!(moveMode && p.barrel),
+        onDragStart: function (e) { if (!moveMode) return; try { e.dataTransfer.setData('text/plain', String(p.id)); } catch (x) {} setPick(p); setTarget(null); },
+        style: { minHeight: 34, background: fillOf(p, by, DARK), borderRadius: 6, padding: '3px 4px', cursor: moveMode ? 'grab' : 'pointer', textAlign: 'center', lineHeight: 1.15, opacity: isPick ? 0.55 : 1,
+          border: '2px solid ' + (isPick || isTarget(slot) ? C.accentLight : hit(p) ? C.accentLight : isSel ? '#fff' : p.flag ? C.orange : 'transparent') } }, slot ? dropProps(slot) : {}),
         cmE('div', { style: { fontWeight: 800, fontSize: 12 } }, p.barrel ? (p.vintage === 2026 ? p.barrel.slice(3) : p.barrel) : p.label),
         p.barrel ? cmE('div', { style: { fontSize: 9, color: '#ddd' } }, by === 'step' ? STEP_LABEL[p.step] : (p.vintage === 2025 && p.area === 'Rows' ? '2025' : short(p.st))) : null);
     };
@@ -235,7 +269,7 @@
             var cells = [cmE('div', { key: 'l', style: { fontWeight: 700, alignSelf: 'center', textAlign: 'center' } }, lv)];
             ['Front', 'Back'].forEach(function (side, si) {
               if (si) cells.push(cmE('div', { key: 'sp' }));
-              'ABCD'.split('').forEach(function (c) { cells.push(box(mine.filter(function (p) { return p.rack === lv && p.side === side && p.col === c; })[0], side + c)); });
+              'ABCD'.split('').forEach(function (c) { cells.push(box(mine.filter(function (p) { return p.rack === lv && p.side === side && p.col === c; })[0], side + c, { area: 'EBS', rack: lv, col: c, side: side, level: null })); });
             });
             return cmE('div', { key: lv, style: { display: 'grid', gridTemplateColumns: tpl, gap: 4, marginBottom: 4 } }, cells);
           })));
@@ -252,7 +286,7 @@
                 cmE('div', { style: Object.assign({}, small, { textAlign: 'center', marginBottom: 3 }) }, 'Column ' + c + ' · front | back'),
                 block ? cmE('div', { style: { minHeight: 60, background: DARK.client, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 } }, block.label)
                   : cmE('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 } }, ['D', 'C', 'B', 'A'].map(function (lv) {
-                    return ['Front', 'Back'].map(function (side) { return box(inCol.filter(function (p) { return p.level === lv && p.side === side; })[0], lv + side); });
+                    return ['Front', 'Back'].map(function (side) { return box(inCol.filter(function (p) { return p.level === lv && p.side === side; })[0], lv + side, { area: 'Rows', rack: rn, col: c, side: side, level: lv }); });
                   })));
             })));
         })));
@@ -262,7 +296,42 @@
         }));
       }
     }
-    var detail = sel && view === 'layout' ? cmE('div', { style: Object.assign({}, card, { borderColor: C.accentLight }) },
+    var unpl = MV ? MV.unplaced(D, raw.s25, raw.s26) : [];
+    var pl = MV && pick && target ? MV.plan(D, pick, target) : null;
+    var btn = function (label, fn, primary, dis) { return cmE('button', { onClick: fn, disabled: !!dis, style: { background: primary ? C.accent : C.card, color: primary ? '#fff' : C.accentLight, border: '1px solid ' + (primary ? C.accent : C.cardBorder), borderRadius: 8, padding: '6px 12px', cursor: dis ? 'default' : 'pointer', fontWeight: 700, opacity: dis ? 0.5 : 1 } }, label); };
+    var pickName = pick ? ((pick.vintage === 2025 ? '25-' : '') + pick.barrel) : '';
+    var movePanel = moveMode && view === 'layout' ? cmE('div', { style: Object.assign({}, card, { borderColor: C.accent }) },
+      cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Move barrels'),
+      cmE('div', { style: small }, !pick ? 'Tap a barrel (or drag it on a computer), then tap the spot it went to. Tap a barrel that is already there to swap them.' :
+        !target ? 'Picked ' + pickName + (pick.id ? ' at ' + MV.slotText(pick) : ' (not on the map yet)') + '. Now tap the spot it went to' + (pick.id ? ', or take it off the map.' : '.') : ''),
+      pl ? cmE('div', { style: { marginTop: 6, fontSize: 13 } },
+        pl.ok ? (pl.kind === 'swap' ? 'Swap ' + pickName + ' (' + MV.slotText(pick) + ') with ' + pl.other.barrel + ' (' + MV.slotText(target) + ')?' :
+          pl.kind === 'place' ? 'Place ' + pickName + ' at ' + MV.slotText(target) + '?' : 'Move ' + pickName + ' from ' + MV.slotText(pick) + ' to ' + MV.slotText(target) + '?')
+          : cmE('span', { style: { color: C.orange } }, pl.reason)) : null,
+      pick ? cmE('input', { value: note, onChange: function (e) { setNote(e.target.value); }, placeholder: 'Note (optional): who, why', style: Object.assign({}, cmSel, { width: '100%', marginTop: 6, boxSizing: 'border-box' }) }) : null,
+      cmE('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' } },
+        pl && pl.ok ? btn(busy ? 'Saving...' : pl.kind === 'swap' ? 'Swap' : pl.kind === 'place' ? 'Place' : 'Move', function () {
+          runMove(function () { return pl.kind === 'place' ? MV.place(pick, target, note) : MV.move(pick, target, note, pl.kind === 'swap'); }, (pl.kind === 'swap' ? 'Swapped ' : pl.kind === 'place' ? 'Placed ' : 'Moved ') + pickName + '.');
+        }, true, busy) : null,
+        pick && pick.id && !target ? btn('Take off map', function () {
+          if (!note.trim()) { setErr('Add a note first: emptied, bottled, moved out, sold.'); return; }
+          runMove(function () { return MV.remove(pick, note.trim()); }, pickName + ' taken off the map.');
+        }, false, busy) : null,
+        pick ? btn('Cancel', function () { setPick(null); setTarget(null); setErr(''); }) : null,
+        btn((showUn ? 'Hide' : 'Show') + ' barrels not on the map (' + unpl.length + ')', function () { setShowUn(!showUn); })),
+      showUn ? cmE('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 } }, unpl.map(function (u) {
+        var isP = pick && !pick.id && pick.barrel === u.barrel && pick.vintage === u.vintage;
+        return cmE('span', { key: u.vintage + u.barrel, title: u.label, onClick: function () { setPick(isP ? null : u); setTarget(null); setErr(''); },
+          style: { fontSize: 11, padding: '3px 7px', borderRadius: 6, cursor: 'pointer', background: isP ? C.accent : C.cardBorder, color: '#fff' } }, (u.vintage === 2025 ? '25-' : '') + u.barrel);
+      })) : null,
+      hist && hist.length ? cmE('div', { style: { marginTop: 10 } }, cmE('div', { style: Object.assign({}, small, { fontWeight: 700, marginBottom: 2 }) }, 'Recent moves'),
+        hist.map(function (m) {
+          return cmE('div', { key: m.id, style: { display: 'flex', gap: 8, fontSize: 11, padding: '2px 0', alignItems: 'center', opacity: m.undone_at ? 0.45 : 1 } },
+            cmE('span', { style: { color: C.textDim, minWidth: 92 } }, (m.moved_at ? new Date(m.moved_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '')),
+            cmE('span', { style: { flex: 1 } }, MV.describe(m) + (m.moved_by ? ' · ' + m.moved_by : '') + (m.undone_at ? ' (undone)' : '')),
+            !m.undone_at ? cmE('span', { onClick: function () { runMove(function () { return MV.undo(m.id); }, 'Undone.'); }, style: { color: C.accentLight, cursor: 'pointer' } }, 'Undo') : null);
+        })) : null) : null;
+    var detail = sel && view === 'layout' && !moveMode ? cmE('div', { style: Object.assign({}, card, { borderColor: C.accentLight }) },
       cmE('div', { style: { fontWeight: 800 } }, sel.barrel ? (sel.vintage + ' barrel ' + sel.barrel) : sel.label),
       cmE('div', { style: small }, where(sel)),
       sel.st ? cmE('div', { style: { fontSize: 12, marginTop: 4 } }, [sel.st.lot_name || sel.st.vineyard, sel.st.owner, sel.st.wine_type, sel.st.ph_latest ? 'pH ' + sel.st.ph_latest : null].filter(Boolean).join(' · ')) : null,
@@ -277,7 +346,9 @@
       cmE('div', { style: { display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' } },
         cmE('div', { style: { flex: '3 1 340px' } }, cmSeg([['layout', 'Layout'], ['list', 'List'], ['lots', 'By wine'], ['work', 'Work list']], view, function (v) { setView(v); setSel(null); })),
         cmE('input', { value: q, onChange: function (e) { setQ(e.target.value.trim()); }, placeholder: view === 'lots' ? 'Find wine' : 'Find barrel', style: Object.assign({}, cmSel, { flex: '1 1 120px' }) }),
+        canMove && view === 'layout' ? cmE('button', { onClick: function () { setMoveMode(!moveMode); setPick(null); setTarget(null); setErr(''); setMsg(''); setSel(null); }, style: { background: moveMode ? C.orange : C.card, color: moveMode ? '#fff' : C.accentLight, border: '1px solid ' + (moveMode ? C.orange : C.cardBorder), borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, moveMode ? 'Done moving' : 'Move barrels') : null,
         cmE('button', { onClick: function () { printView(view, D, by); }, style: { background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, 'Print')),
+      msg ? cmE('div', { style: { color: C.green || '#22c55e', fontSize: 12, marginBottom: 6, fontWeight: 700 } }, msg) : null,
       view === 'layout' ? cmE('div', { style: { display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' } },
         cmE('div', { style: { flex: '2 1 260px' } }, cmSeg([['EBS', 'EBS racks'], ['Rows', 'Floor rows'], ['Pallets', 'Pallets']], area, function (a) { setArea(a); setSel(null); })),
         cmE('div', { style: { flex: '1 1 200px' } }, cmSeg([['wine', 'Color: wine'], ['step', 'Color: next step']], by, setBy))) : null,
@@ -286,7 +357,7 @@
       }).concat([cmE('span', { key: 'fl', style: { fontSize: 10, border: '2px solid ' + C.orange, borderRadius: 4, padding: '1px 6px' } }, 'Check')])) : null,
       cmE('div', { style: Object.assign({}, small, { marginBottom: 8 }) }, placed + ' barrels placed · positions as of ' + ((D[0] && D[0].as_of) || '') +
         (view === 'work' ? ' · grouped by next step, in walking order (EBS bottom to top, then rows)' : view === 'lots' ? ' · tap a barrel to see it on the layout' : '')),
-      detail, body);
+      movePanel, detail, body);
   }
 
   window.cmMapIndex = cmMapIndex; window.cmMapLots = cmMapLots; window.cmMapWork = cmMapWork; window.cmMapPrintHtml = cmMapPrintHtml;

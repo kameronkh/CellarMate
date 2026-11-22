@@ -59,6 +59,19 @@ window.cmSmoke = async function(opts) {
   const ph2 = cmMapPrintHtml('list', bm, 'wine');
   ok('printable list has a row per barrel', (ph2.match(/<tr>/g) || []).length === placedN + 1);
   ok('printable work list and by-wine render', cmMapPrintHtml('work', bm, 'step').indexOf('Work list') > -1 && cmMapPrintHtml('lots', bm, 'wine').indexOf('Where each wine is') > -1);
+  /* 1f. barrel moves (planning only; no writes in the smoke test) */
+  const MVt = window.cmBarrelMoves;
+  ok('barrel move helpers loaded', !!(MVt && MVt.plan && MVt.move && MVt.undo));
+  const pk = bm.filter(function(p) { return p.area === 'EBS' && p.barrel; })[0];
+  const emptyE = {area:'EBS', rack:12, col:'D', side:'Front', level:null};
+  ok('move to an empty spot plans a move', MVt.plan(bm, pk, emptyE).kind === 'move', JSON.stringify(MVt.plan(bm, pk, emptyE)));
+  const other = bm.filter(function(p) { return p.area === 'EBS' && p.barrel && p.id !== pk.id; })[0];
+  ok('move onto a barrel plans a swap', MVt.plan(bm, pk, other).kind === 'swap');
+  ok('same spot is refused', MVt.plan(bm, pk, pk).ok === false);
+  ok('client stack is refused', MVt.plan(bm, pk, {area:'Rows', rack:7, col:'2', side:'Front', level:'A'}).ok === false);
+  const un = MVt.unplaced(bm, bmz[1], bmz[2]);
+  ok('unplaced list excludes placed barrels', un.length > 0 && !un.some(function(u) { return bm.some(function(p) { return p.barrel === u.barrel && p.vintage === u.vintage; }); }), un.length);
+  ok('placing onto a barrel is refused', MVt.plan(bm, un[0], other).ok === false);
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
