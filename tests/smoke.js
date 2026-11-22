@@ -167,6 +167,25 @@ window.cmSmoke = async function(opts) {
   const pickTons = vz[1].filter(function(p) { return p.vintage === 2025 && /tystrya/i.test(p.vineyard || ''); }).reduce(function(s, p) { return s + (Number(p.tons) || 0); }, 0);
   const blockTons = vc.blocks.filter(function(b) { return b.vineyard === 'Tystrya Estate'; }).reduce(function(s, b) { return s + ((b.vals[2025] || {}).tons || 0); }, 0);
   ok('Estate block tons add up to the 2025 Estate picks', Math.abs(pickTons - blockTons) < 0.05 || blockTons <= pickTons, pickTons.toFixed(2) + ' vs ' + blockTons.toFixed(2));
+  /* 1o. vineyard weather and harvest */
+  ok('vineyard module loaded', !!(window.CmVineyard && window.cmGddSeason && window.cmWeatherFor));
+  const sd = cmGddSeason([{date:'2030-03-31', tmax:90, tmin:70, p:1}, {date:'2030-04-01', tmax:80, tmin:60, p:0.5}, {date:'2030-09-02', tmax:96, tmin:64, p:0.3}]);
+  ok('heat units count Apr to Oct only, base 50', sd[2030].gdd === 50 && Math.abs(sd[2030].rain - 0.8) < 1e-9 && sd[2030].hot95 === 1 && sd[2030].events.length === 1, JSON.stringify({g:sd[2030].gdd, r:sd[2030].rain}));
+  const pr = cmProjectRipe(sd[2030], {'09-03': 20, '09-04': 20}, 85, '2030-09-02');
+  ok('ripe date projects forward on normal heat', pr && pr.date === '2030-09-04', JSON.stringify(pr));
+  const cc = cmCropCheck({est_tons: 4, target_tons_acre: 3}, {acres: 1, maxTpa: 3.5, actual: 4.5});
+  ok('crop check flags over target and over best year', cc.flags.filter(function(f) { return f.level === 'warn'; }).length === 2 && /Dropping about 1\.00 t/.test(cc.flags[0].text), cc.flags.map(function(f) { return f.text; }).join(' | '));
+  const hz = await Promise.all(['vineyard_blocks','estate_harvests','picks','vineyards'].map(function(t) { return cmFetch(t); }));
+  const hh = cmHarvestHistory({blocks: hz[0], estate: hz[1], picks: hz[2]});
+  const b4 = hh.blocks.filter(function(b) { return b.block === 4; })[0];
+  ok('Estate block 4 2025 tons and t/ac', b4 && Math.abs(b4.years[2025].tons - 11.1735) < 0.001 && Math.abs(b4.years[2025].tpa - 11.1735 / 3.03) < 0.001, b4 && b4.years[2025].tons);
+  ok('13 Estate blocks with history from 2017', hh.blocks.length >= 13 && hh.years[0] === 2017, hh.blocks.length + ' ' + hh.years[0]);
+  ok('grower Stiling 2025 tons from picks', (function() { const g = hh.growers.filter(function(x) { return x.vineyard === 'Stiling'; })[0]; return g && Math.abs(g.years[2025].tons - 9.26) < 0.01; })());
+  const est = hz[3].filter(function(v) { return v.owner_type === 'estate'; })[0];
+  ok('Estate vineyard has a location', est && est.lat != null && est.lon != null);
+  const wxr = await cmWeatherFor(est); const ss = cmGddSeason(wxr.days);
+  ok('weather 2017 to now cached for the Estate', wxr.days.length > 3500 && ss[2024] && ss[2026], wxr.days.length + ' days');
+  ok('2024 to 2026 heat units in the Willamette range', [2024, 2025, 2026].every(function(y) { return ss[y].gdd > 1800 && ss[y].gdd < 3000; }), [2024, 2025, 2026].map(function(y) { return Math.round(ss[y].gdd); }).join(', '));
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -197,6 +216,11 @@ window.cmSmoke = async function(opts) {
   if (sel2) { const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
     for (const rep of ['malic','so2','tart','top','chard','ml','chsul','eat']) { set.call(sel2, rep); sel2.dispatchEvent(new Event('change', {bubbles:true})); await wait(1300); ok('report ' + rep, document.querySelectorAll('tbody tr').length > 0 && !bad(), bad()); } }
 
+  /* 3b. vineyard side */
+  nav('Cellar'); await wait(1200);
+  const vb = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Vine Blocks'; })[0];
+  if (vb) { vb.click(); await wait(4000); }
+  ok('Vine Blocks shows weather and harvest', /Heat units and rain/.test(document.body.innerText) && /Estate blocks: tons per acre/.test(document.body.innerText) && !bad(), bad());
   /* 4. layout at this width */
   const over = Array.from(document.querySelectorAll('button,input,select,table')).filter(function(e) { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 2 && !e.closest('[style*=overflow-x]'); }).length;
   ok('nothing cut off at ' + innerWidth + ' px', document.documentElement.scrollWidth <= innerWidth + 2 && !over, over + ' cut off');
