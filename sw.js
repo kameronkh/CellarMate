@@ -1,7 +1,7 @@
 /* CellarMate service worker: keeps the app itself available with no connection.
    Cellar data is saved separately by the app (IndexedDB), not here. */
-const CM_SW_CACHE = 'cellarmate-shell-v1';
-const CM_SHELL = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const CM_SW_CACHE = 'cellarmate-shell-v2';
+const CM_SHELL = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png', '/modules/ferment.js', '/modules/materials.js'];
 const CM_LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js',

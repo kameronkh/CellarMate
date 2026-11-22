@@ -13,6 +13,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="/modules/ferment.js"></script>
+  <script src="/modules/materials.js"></script>
     <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0f1117; font-family: 'Inter', system-ui, sans-serif; }
@@ -3707,10 +3709,11 @@ function CmReportsScreen(props) {
   React.useEffect(function() { let live = true; cmStatusRows().then(function(r) { if (live) setRows(r); }).catch(function(e) { if (live) { setRows([]); setErr(e.message); } }); return function() { live = false; }; }, [tab]);
   React.useEffect(function() { if (tab !== 'data') return; let live = true; setData(null); cmFetch(tbl).then(function(r) { if (live) setData(r); }).catch(function(e) { if (live) { setData([]); setErr(e.message); } }); return function() { live = false; }; }, [tab, tbl]);
   const run = function(label, fn) { setBusy(label); setErr(''); Promise.resolve().then(fn).catch(function(e) { setErr(e.message); }).then(function() { setBusy(''); }); };
-  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:930}}, cmSeg([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['wines','Wines'],['sup','Supplies'],['data','Data'],['ask','Q&A']].concat(cmCan('facility_view') ? [['fac','Facility'],['ttb','TTB']] : []).concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
+  const tabs = cmE('div', {style:{marginBottom:12, overflowX:'auto'}}, cmE('div', {style:{minWidth:1100}}, cmSeg(cmWithModTabs([['status','Status'],['focus','Reports'],['work','Work'],['log','Log'],['vol','Volumes'],['tanks','Tanks'],['wines','Wines'],['sup','Supplies'],['data','Data'],['ask','Q&A']]).concat(cmCan('facility_view') ? [['fac','Facility'],['ttb','TTB']] : []).concat(cmCan('manage_users') ? [['admin','Admin']] : []), tab, setTab)));
   const errBox = err ? cmE('div', {style:{background:C.redDim, border:'1px solid ' + C.red, borderRadius:8, padding:'10px 12px', color:C.red, fontSize:12, marginBottom:12, fontWeight:600}}, err) : null;
   const busyBox = busy ? cmE('div', {style:{fontSize:12, color:C.accentLight, marginBottom:10}}, busy) : null;
 
+  if (window.CM_MODULES && window.CM_MODULES[tab]) return cmE(React.Fragment, null, tabs, cmE(window.CM_MODULES[tab].Component, null));
   if (tab === 'focus') return cmE(React.Fragment, null, tabs, cmE(CmFocusReports, {rows: rows || []}));
   if (tab === 'ask') return cmE(React.Fragment, null, tabs, cmE(CmMyChecks, null), cmE(CmQuestions, null));
   if (tab === 'log') return cmE(React.Fragment, null, tabs, cmE(CmLogWork, null));
@@ -5749,6 +5752,14 @@ async function cmLotsSync(lots) {
     CM_LOTS.lastSync = new Date().toISOString();
   } catch (e) { CM_LOTS.err = String(e && e.message || e); }
   finally { CM_LOTS.busy = false; if (CM_LOTS.pending) { const p = CM_LOTS.pending; CM_LOTS.pending = null; cmLotsSync(p); } }
+}
+/* == Module 17: module registry. Feature modules live in /modules/*.js and register in window.CM_MODULES == */
+function cmWithModTabs(base) {
+  const mods = window.CM_MODULES || {};
+  const extra = Object.keys(mods).sort(function(a, b) { return (mods[a].order || 99) - (mods[b].order || 99); }).map(function(k) { return [k, mods[k].label, mods[k].order || 99]; });
+  const out = base.slice();
+  extra.forEach(function(m) { const at = m[2] < 50 ? out.findIndex(function(t) { return t[0] === 'vol'; }) : out.findIndex(function(t) { return t[0] === 'data'; }); out.splice(at < 0 ? out.length : at, 0, [m[0], m[1]]); });
+  return out;
 }
 async function getSupaProfile(userId) {
   const me = await cmLoadAccess();
