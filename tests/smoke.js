@@ -130,6 +130,14 @@ window.cmSmoke = async function(opts) {
   ok('ETS samples and results read', ep.samples.length === 2 && ep.samples[0].barrel === '26-022' && ep.samples[0].results.length === 4 && ep.samples[1].barrel === null, JSON.stringify(ep.samples.map(function(s) { return [s.desc, s.barrel, s.results.length]; })));
   ok('ETS values: below-limit and VA', ep.samples[0].results[0].value_text.indexOf('<2') === 0 && ep.samples[0].results[2].analyte === 'va' && ep.samples[0].results[2].value === 1.2);
   ok('PDF text rebuilt into lines', JSON.stringify(cmLinesFromItems([{str:'pH', x:10, y:500}, {str:'3.42', x:300, y:500.8}, {str:'brix', x:10, y:480}])) === JSON.stringify(['pH   3.42', 'brix']));
+  /* 1l. Today screen */
+  ok('Today module loaded and first', !!(window.CM_MODULES && CM_MODULES.today) && cmWithModTabs([['status','Status'],['vol','Volumes']])[0][0] === 'today');
+  const tdz = await Promise.all([cmFetch('work_orders'), cmFetch('so2_log'), cmFetch('cellar_actions'), cmFetch('topping_log')]);
+  const tp = cmTodayPlan({items: bm, orders: tdz[0], so2: tdz[1], actions: tdz[2], toppingLogs: tdz[3], interval: 21}, '2026-11-24');
+  ok('Today lists open work orders with spots', tp.orders.length >= 1 && tp.orders.every(function(o) { return o.barrels.every(function(b) { return 'p' in b; }); }), tp.orders.length);
+  ok('Today SO2 adds match the map work list', tp.add.length === (cmMapWork(bm).filter(function(g) { return g.step === 'add'; })[0] || {barrels:[]}).barrels.length);
+  ok('Today asks to re-test 26-097 after the Nov 20 add', tp.retest.some(function(x) { return x.code === '26-097'; }), JSON.stringify(tp.retest.slice(0,4).map(function(x) { return x.code; })));
+  ok('Today day sheet prints', cmTodaySheetHtml(tp).indexOf('day sheet 2026-11-24') > -1);
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -150,7 +158,7 @@ window.cmSmoke = async function(opts) {
   const g = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Kameron'; })[0];
   if (g && /logging today/.test(document.body.innerText.slice(0, 300))) { g.click(); await wait(1500); }
   for (const n of ['Cellar', 'Lots', 'Health', 'Schedule', 'Reports']) { nav(n); await wait(1600); ok('screen ' + n, document.body.innerText.length > 500 && !bad(), bad()); }
-  for (const t of ['Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
+  for (const t of ['Today', 'Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
     if (!click(t, 'button')) continue; await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }
