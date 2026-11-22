@@ -39,6 +39,16 @@ window.cmSmoke = async function(opts) {
   const plTotal = mz[4].reduce(function(t, p) { return t + Number(p.amount || 0); }, 0);
   ok('invoice total is about 40,703', Math.abs(plTotal - 40703.38) < 1, plTotal.toFixed(2));
   ok('BRG use matches log (427 g)', (mrows.filter(function(r) { return /BRG/.test(r.s.name); })[0] || {}).faG === 427);
+  /* 1d. barrel map module */
+  ok('module registry has Map', !!(window.CM_MODULES && CM_MODULES.map));
+  const bmz = await Promise.all([cmFetch('barrel_positions'), cmFetch('barrel_status_2025'), cmFetch('barrel_status_2026')]);
+  const bm = cmMapIndex(bmz[0], bmz[1], bmz[2]);
+  ok('EBS map has 94 barrels', bm.filter(function(p) { return p.area === 'EBS' && p.barrel; }).length === 94, bm.filter(function(p) { return p.area === 'EBS' && p.barrel; }).length);
+  ok('floor rows place 120+ barrels', bm.filter(function(p) { return p.area === 'Rows' && p.barrel; }).length >= 120);
+  const slot = {}; let clash = [];
+  bm.filter(function(p) { return p.barrel; }).forEach(function(p) { const k = [p.area, p.rack, p.col, p.side, p.level].join('|'); if (slot[k]) clash.push(k); slot[k] = 1; });
+  ok('no two barrels in one slot', !clash.length, clash.join(' '));
+  ok('every placed 2026 barrel is on file', bm.filter(function(p) { return p.vintage === 2026 && p.barrel && !p.st; }).length <= 1);
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -59,7 +69,7 @@ window.cmSmoke = async function(opts) {
   const g = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Kameron'; })[0];
   if (g && /logging today/.test(document.body.innerText.slice(0, 300))) { g.click(); await wait(1500); }
   for (const n of ['Cellar', 'Lots', 'Health', 'Schedule', 'Reports']) { nav(n); await wait(1600); ok('screen ' + n, document.body.innerText.length > 500 && !bad(), bad()); }
-  for (const t of ['Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Materials', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
+  for (const t of ['Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Materials', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
     if (!click(t, 'button')) continue; await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }
