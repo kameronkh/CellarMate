@@ -167,7 +167,7 @@
   }
 
   /* sections of the vineyard screen */
-  var TABS = [['weather', 'Weather and harvest'], ['sprays', 'Forecast and sprays'], ['field', 'Field work'], ['season', 'Season and budget'], ['equipment', 'Equipment'], ['paperwork', 'Paperwork'], ['owners', 'Schedule and owners'], ['records', 'Records']];
+  var TABS = [['weather', 'Weather and harvest'], ['sprays', 'Forecast and sprays'], ['field', 'Field work'], ['season', 'Season and budget'], ['equipment', 'Equipment'], ['paperwork', 'Paperwork'], ['owners', 'Schedule and owners'], ['records', 'Records'], ['library', 'Vit library']];
 
   /* ── screen ── */
   function CmVineyard() {
@@ -379,6 +379,7 @@
       tab === 'owners' ? (site && window.CmVineyardTeam ? cmE(window.CmVineyardTeam, { key: 'team' + site.id, site: site }) : null) : null,
 
       /* vineyard records and original files (vinerecords.js) */
+      tab === 'library' && window.CmVitLibrary ? cmE(window.CmVitLibrary, { key: 'vit' + (site ? site.id : ''), site: site, days: wx.days || [] }) : null,
       tab === 'records' ? (vy === 'Tystrya Estate' && window.CmVineRecords ? cmE(window.CmVineRecords, { site: site, onSaved: reload }) : null) : null);
   }
 

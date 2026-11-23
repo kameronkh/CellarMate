@@ -342,6 +342,22 @@ window.cmSmoke = async function(opts) {
     if (!click(t, 'button')) continue; await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }
+  /* 1w. vit library: stage, signals, matching, search and the AI prompt */
+  ok('vit library module loaded', !!(window.CmVitLibrary && window.cmVitStageFor && window.cmVitSignals && window.cmVitMatch && window.cmVitSearch && window.cmVitPrompt));
+  ok('vit stage by date', cmVitStageFor('2030-06-10').key === 'bloom' && cmVitStageFor('2030-01-15').key === 'dormant' && cmVitStageFor('2030-12-15').key === 'dormant' && cmVitStageFor('2030-09-20').key === 'harvest', [cmVitStageFor('2030-06-10').key, cmVitStageFor('2030-12-15').key].join(','));
+  const vsig = cmVitSignals({date: '2030-06-10', days: [{date: '2030-06-08', p: 0.4, tmax: 70, tmin: 50}, {date: '2030-06-09', p: 0.3, tmax: 68, tmin: 52}, {date: '2030-06-10', p: 0, tmax: 72, tmin: 51}]});
+  ok('vit signals: rain at bloom raises Botrytis', vsig.tags.indexOf('rain') >= 0 && vsig.tags.indexOf('botrytis_high') >= 0 && vsig.tags.indexOf('stage:bloom') >= 0, vsig.tags.join(','));
+  const vfr = cmVitSignals({date: '2030-04-20', days: [{date: '2030-04-19', p: 0, tmax: 60, tmin: 30}, {date: '2030-04-20', p: 0, tmax: 62, tmin: 35}]});
+  ok('vit signals: frost after budbreak', vfr.tags.indexOf('frost') >= 0 && vfr.tags.indexOf('rain') < 0, vfr.tags.join(','));
+  const vfx = [{slug: 'a', title: 'Botrytis', category: 'Diseases', summary: 'grey mould at bloom', signals: ['rain', 'stage:bloom'], months: [6], orgs: ['OSU'], varieties: ['Pinot noir'], sources: [{org: 'OSU', title: 'Guide', url: 'https://x'}]}, {slug: 'b', title: 'Frost', category: 'Weather', summary: 'cold nights', signals: ['frost'], months: [4], orgs: ['WSU']}, {slug: 'h', title: 'Hub', category: 'Programs', summary: 'bloom', signals: ['hub'], months: [6], orgs: ['OSU']}];
+  const vm = cmVitMatch(vfx, vsig, 5);
+  ok('vit match ranks the bloom rain entry and leaves out hubs', vm.length === 1 && vm[0].e.slug === 'a', vm.map(function(x) { return x.e.slug + ':' + x.score; }).join(','));
+  ok('vit search by words, topic and source', cmVitSearch(vfx, 'grey mould', {}).length === 1 && cmVitSearch(vfx, '', {org: 'WSU'})[0].slug === 'b' && cmVitSearch(vfx, '', {category: 'Diseases'}).length === 1);
+  const vpr = cmVitPrompt([vfx[0]], {site: {name: 'Test', acres: 1}, sig: vsig});
+  ok('vit prompt carries stage, conditions and sources', /Likely stage: Bloom/.test(vpr) && /Source: OSU, Guide, https:\/\/x/.test(vpr) && /rain in the last 3 days/.test(vpr));
+  const vlib = await dbf.from('vit_library').select('slug,orgs,sources,summary');
+  const vorgs = {}; (vlib.data || []).forEach(function(e) { (e.orgs || []).forEach(function(o) { vorgs[o] = 1; }); });
+  ok('vit library loaded with sources from all four universities', !vlib.error && vlib.data.length >= 30 && ['OSU', 'UC Davis', 'WSU', 'Cornell'].every(function(o) { return vorgs[o]; }) && vlib.data.every(function(e) { return e.summary && (e.sources || []).length && e.sources.every(function(s) { return /^https:\/\//.test(s.url); }); }), (vlib.error || {}).message || (vlib.data || []).length);
   const sel = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
   if (click('Reports', 'button')) { await wait(1500); }
   const sel2 = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
@@ -375,6 +391,10 @@ window.cmSmoke = async function(opts) {
   if (pvb) { pvb.click(); for (let i = 0; i < 20 && !/Records and files \(/.test(T()); i++) await wait(1000); }
   ok('Vine Blocks, schedule, owner access and owner preview', /Schedule and owner access/.test(T()) && /vineyard owner view/i.test(T()) && /Done lately/.test(T()) && /From the field/.test(T()) && /Records and files \(/.test(T()) && !bad(), bad());
   if (pvb) { const cl = Array.from(document.querySelectorAll('button')).filter(function(x) { return x.innerText.trim() === 'Close preview'; })[0]; if (cl) cl.click(); await wait(500); }
+  await vtab('Vit library', /What may be happening now/, 20);
+  for (let i = 0; i < 15 && !/entries/.test(T()); i++) await wait(1000);
+  ok('Vine Blocks, vit library', /What may be happening now/.test(T()) && /likely stage/.test(T()) && /Powdery mildew/.test(T()) && / of \d+ entries/.test(T()) && !bad(), bad());
+  if (click('Study cards', 'button')) { await wait(600); ok('vit library study cards', /Card 1 of \d+/.test(T()) && !bad(), bad()); click('Read', 'button'); await wait(400); }
   await vtab('Weather and harvest', /Heat units and rain/);
   /* 4. layout at this width */
   const over = Array.from(document.querySelectorAll('button,input,select,table')).filter(function(e) { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 2 && !e.closest('[style*=overflow-x]'); }).length;
