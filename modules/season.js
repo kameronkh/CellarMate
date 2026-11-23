@@ -86,11 +86,23 @@
     return { rows: rows, total: tot };
   }
 
-  /* budget rows for a year -> one line per category and item with each version and the variance */
-  function cmBudgetSummary(rows, year) {
+  /* which vineyard manager ran the vineyard in a given month: history [{manager, from: 'YYYY-MM-DD'}] */
+  function cmManagerFor(history, year, month) {
+    var d = year + '-' + ('0' + (month || 1)).slice(-2) + '-15', cur = null;
+    (history || []).slice().sort(function (a, b) { return a.from < b.from ? -1 : 1; }).forEach(function (h) { if (h.from <= d) cur = h.manager; });
+    return cur;
+  }
+  /* budget rows for a year -> one line per category and item with each version and the variance.
+     With a manager history, a monthly row only counts in the months its manager ran the vineyard, so a
+     year that changed managers combines the first manager's months with the second's. */
+  function cmBudgetSummary(rows, year, history) {
     var by = {};
-    (rows || []).filter(function (r) { return r.year === year; }).forEach(function (r) {
-      var k = r.category + '|' + r.item, o = by[k] = by[k] || { category: r.category, item: r.item, preliminary: null, final: null, actual: null, hoursFinal: null, hoursActual: null, expectedMonth: null, doneMonth: null };
+    (rows || []).filter(function (r) { return r.year === year; }).filter(function (r) {
+      if (!r.manager || !r.month || !history || !history.length) return true;
+      var m = cmManagerFor(history, year, r.month); return !m || m === r.manager;
+    }).forEach(function (r) {
+      var k = r.category + '|' + r.item, o = by[k] = by[k] || { category: r.category, item: r.item, preliminary: null, final: null, actual: null, hoursFinal: null, hoursActual: null, expectedMonth: null, doneMonth: null, managers: [] };
+      if (r.manager && o.managers.indexOf(r.manager) < 0) o.managers.push(r.manager);
       o[r.version] = (o[r.version] || 0) + (num(r.amount) || 0);
       if (r.version === 'final' && num(r.hours) != null) o.hoursFinal = (o.hoursFinal || 0) + num(r.hours);
       if (r.version === 'actual' && num(r.hours) != null) o.hoursActual = (o.hoursActual || 0) + num(r.hours);
@@ -139,7 +151,13 @@
     var ys = Object.keys(years).filter(function (k) { return /^\d{4}$/.test(k); }).map(Number).sort(function (a, b) { return b - a; });
     var ea = cmExpectedActual(D.tasks.filter(function (t) { return String(t.planned_on || t.done_on).slice(0, 4) === String(year); }));
     var eva = cmEstimateVsActual((P.est || []).filter(function (x) { return x.vineyard === site.name; }), D.harvests, year);
-    var bud = cmBudgetSummary(D.budget, year);
+    var hist = site.manager_history || [];
+    var bud = cmBudgetSummary(D.budget, year, hist);
+    var mgrs = []; for (var mo = 1; mo <= 12; mo++) { var mm = cmManagerFor(hist, year, mo); if (mm && (!mgrs.length || mgrs[mgrs.length - 1].m !== mm)) mgrs.push({ m: mm, from: mo, to: mo }); else if (mm) mgrs[mgrs.length - 1].to = mo; }
+    var setHandover = function (ev) {
+      var v = ev.target.value; if (!v) return; var h = hist.filter(function (x) { return x.manager !== 'Century Vineyards'; }).concat([{ manager: 'Century Vineyards', from: v }]);
+      db().from('vineyards').update({ manager_history: h }).eq('id', site.id).then(function (r) { if (r.error) setErr(r.error.message); else { site.manager_history = h; setErr(''); load(); } });
+    };
     var addBudget = function () {
       if (!F.category.trim() || !F.item.trim() || num(F.amount) == null) { setErr('Enter category, item and amount.'); return; }
       db().from('vineyard_budget').insert({ organization_id: site.organization_id, vineyard: site.name, year: year, version: F.version, category: F.category.trim(), item: F.item.trim(), month: F.month ? +F.month : null, amount: num(F.amount), hours: num(F.hours), note: F.note || null })
@@ -170,6 +188,7 @@
       cmE('div', { style: { display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 8px' } }, cmE('div', { style: { fontSize: 15, fontWeight: 700, flex: 1 } }, 'Season and budget'),
         cmE('select', { value: year, onChange: function (ev) { setYear(+ev.target.value); }, style: Object.assign({}, cmSel, { flex: '0 0 100px' }) }, ys.map(function (v) { return cmE('option', { key: v, value: v }, v); }))),
       err ? cmE('div', { style: { color: C.red, fontSize: 12, marginBottom: 6 } }, err) : null,
+      window.CmOutlook ? cmE(window.CmOutlook, { site: site, wsite: P.wsite, days: P.days || [], D: D, history: hist }) : null,
 
       cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'The typical year: Pinot noir and Chardonnay'),
@@ -205,11 +224,14 @@
         bud.rows.length ? cmE('table', { style: { borderCollapse: 'collapse', width: '100%', minWidth: 680 } },
           cmE('thead', null, cmE('tr', null, ['Category', 'Item', 'Expected', 'Done', 'Preliminary', 'Final', 'Actual', 'Actual vs budget', 'Hours (final / actual)'].map(function (x, i) { return cmE('th', { key: x, style: i > 1 ? th : L(th) }, x); }))),
           cmE('tbody', null, bud.rows.map(function (r) {
-            return cmE('tr', { key: r.category + r.item }, cmE('td', { style: L(td) }, r.category), cmE('td', { style: L(td) }, r.item), cmE('td', { style: td }, r.expectedMonth ? MONTHS[r.expectedMonth - 1] : ''), cmE('td', { style: Object.assign({}, td, { color: r.doneMonth && r.expectedMonth && r.doneMonth > r.expectedMonth ? C.orange : C.text }) }, r.doneMonth ? MONTHS[r.doneMonth - 1] : ''),
+            return cmE('tr', { key: r.category + r.item }, cmE('td', { style: L(td) }, r.category), cmE('td', { style: L(td) }, r.item, r.managers && r.managers.length && mgrs.length > 1 ? cmE('span', { style: small }, ' · ' + r.managers.join(', ')) : null), cmE('td', { style: td }, r.expectedMonth ? MONTHS[r.expectedMonth - 1] : ''), cmE('td', { style: Object.assign({}, td, { color: r.doneMonth && r.expectedMonth && r.doneMonth > r.expectedMonth ? C.orange : C.text }) }, r.doneMonth ? MONTHS[r.doneMonth - 1] : ''),
               cmE('td', { style: td }, money(r.preliminary)), cmE('td', { style: td }, money(r.final)), cmE('td', { style: td }, money(r.actual)),
               cmE('td', { style: Object.assign({}, td, { color: r.variance > 0 ? C.red : r.variance < 0 ? C.green : C.text }) }, r.variance == null ? '' : (r.variance > 0 ? '+' : '') + money(r.variance)), cmE('td', { style: td }, (r.hoursFinal != null ? r1(r.hoursFinal, 0) : '-') + ' / ' + (r.hoursActual != null ? r1(r.hoursActual, 0) : '-')));
           }).concat([cmE('tr', { key: 'tot' }, cmE('td', { style: Object.assign(L(td), { fontWeight: 700 }) }, 'Total'), cmE('td', { style: td }), cmE('td', { style: td }), cmE('td', { style: td }), cmE('td', { style: Object.assign({}, td, { fontWeight: 700 }) }, money(bud.total.preliminary)), cmE('td', { style: Object.assign({}, td, { fontWeight: 700 }) }, money(bud.total.final)), cmE('td', { style: Object.assign({}, td, { fontWeight: 700 }) }, money(bud.total.actual)), cmE('td', { style: td }), cmE('td', { style: td }))])))
-          : cmE('div', { style: small }, 'No budget for ' + year + ' yet. Import the vineyard manager\'s preliminary and final budgets (download the template for the columns), or add rows below.'),
+          : null,
+        mgrs.length > 1 ? cmE('div', { style: Object.assign({}, small, { marginTop: 6 }) }, year + ' combines ' + mgrs.map(function (g) { return g.m + ' (' + MONTHS[g.from - 1] + (g.to !== g.from ? ' to ' + MONTHS[g.to - 1] : '') + ')'; }).join(' and ') + ': each manager\'s monthly lines count only in their months. Change of manager on ',
+          cmE('input', { type: 'date', defaultValue: (hist.filter(function (x) { return x.manager === 'Century Vineyards'; })[0] || {}).from || '', onBlur: setHandover, style: Object.assign({}, inp, { width: 140, display: 'inline-block', padding: '2px 6px' }) })) : null,
+        bud.rows.length ? null : cmE('div', { style: small }, 'No budget for ' + year + ' yet. Import the vineyard manager\'s preliminary and final budgets (download the template for the columns), or add rows below.'),
         cmE('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 8 } },
           cmE('label', { style: { flex: '1 1 110px', fontSize: 11, color: C.textDim } }, 'Version', cmE('select', { value: F.version, onChange: function (ev) { setF(Object.assign({}, F, { version: ev.target.value })); }, style: inp }, ['preliminary', 'final', 'actual'].map(function (v) { return cmE('option', { key: v, value: v }, v); }))),
           fl('category', 'Category'), fl('item', 'Item', 'text', '2 1 150px'),
@@ -223,5 +245,6 @@
   window.cmExpectedActual = cmExpectedActual;
   window.cmEstimateVsActual = cmEstimateVsActual;
   window.cmBudgetSummary = cmBudgetSummary;
+  window.cmManagerFor = cmManagerFor;
   window.CmSeason = CmSeason;
 })();

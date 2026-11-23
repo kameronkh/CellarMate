@@ -275,7 +275,7 @@
       tab === 'sprays' && site && window.CmSprayHistory ? cmE(window.CmSprayHistory, { key: 'sh' + site.id, site: site, days: wx.days || [], sprays: D.sprays }) : null,
 
       /* season calendar, expected against actual, budget (season.js) */
-      tab === 'season' && site && window.CmSeason ? cmE(window.CmSeason, { key: 'season' + site.id, site: site, blocks: H.blocks, seasons: seasons, est: D.est }) : null,
+      tab === 'season' && site && window.CmSeason ? cmE(window.CmSeason, { key: 'season' + site.id, site: site, wsite: wsite, days: wx.days || [], blocks: H.blocks, seasons: seasons, est: D.est }) : null,
 
       /* equipment and maintenance (equipment.js) */
       tab === 'equipment' && site && window.CmEquipment ? cmE(window.CmEquipment, { key: 'eq' + site.id, site: site }) : null,

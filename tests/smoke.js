@@ -358,6 +358,24 @@ window.cmSmoke = async function(opts) {
   const vlib = await dbf.from('vit_library').select('slug,orgs,sources,summary');
   const vorgs = {}; (vlib.data || []).forEach(function(e) { (e.orgs || []).forEach(function(o) { vorgs[o] = 1; }); });
   ok('vit library loaded with sources from all four universities', !vlib.error && vlib.data.length >= 30 && ['OSU', 'UC Davis', 'WSU', 'Cornell'].every(function(o) { return vorgs[o]; }) && vlib.data.every(function(e) { return e.summary && (e.sources || []).length && e.sources.every(function(s) { return /^https:\/\//.test(s.url); }); }), (vlib.error || {}).message || (vlib.data || []).length);
+  /* 1x. forecast year against actual years, and a year split between two vineyard managers */
+  ok('outlook module loaded', !!(window.CmOutlook && window.cmGddPath && window.cmCalibrate && window.cmProject && window.cmNormalGdd && window.cmBacktest && window.cmOutlookPlan && window.cmManagerFor));
+  const oDays = []; [2030, 2031, 2032].forEach(function(y, j) { for (let i = 0; i < 365; i++) { const d = new Date(Date.UTC(y, 0, 1 + i)).toISOString().slice(0, 10); const t = 55 + 25 * Math.sin((i - 100) / 365 * 2 * Math.PI) + (j - 1) * 2; oDays.push({date: d, tmax: t + 10, tmin: t - 10, p: 0.1}); } });
+  const oPaths = {}; [2030, 2031, 2032].forEach(function(y) { oPaths[y] = cmGddPath(oDays, y); });
+  ok('outlook heat path: warmer year has more heat, season complete', oPaths[2032].total > oPaths[2031].total && oPaths[2031].total > oPaths[2030].total && oPaths[2030].complete, [2030, 2031, 2032].map(function(y) { return Math.round(oPaths[y].total); }).join(','));
+  const oSt = [2030, 2031, 2032].map(function(y) { return {year: y, firstSpray: y + '-04-25', veraison: y + '-08-15', firstPick: y + '-09-25', lastPick: y + '-10-05'}; });
+  const oCal = cmCalibrate(oSt, oPaths, null);
+  ok('outlook calibrates from the vineyard and falls back to the library for bloom', oCal.firstPick.n === 3 && oCal.bloom.n === 0 && Math.abs(oCal.bloom.gdd - cmGddPath(oDays, 2031).by['2031-06-15']) < 1, JSON.stringify({fp: oCal.firstPick.n, bl: oCal.bloom.gdd}));
+  const oNm = cmNormalGdd(oDays, null); const oPr = cmProject(2033, oCal, null, function(d) { return oNm[d.slice(5)] || 0; });
+  ok('outlook projects stages in order', oPr.dates.firstSpray < oPr.dates.bloom && oPr.dates.bloom < oPr.dates.veraison && oPr.dates.veraison < oPr.dates.firstPick, JSON.stringify(oPr.dates));
+  const oBt = cmBacktest(oSt, oPaths, oDays);
+  ok('outlook backtest: each year forecast from the others lands within 3 days on steady weather', oBt.length === 3 && oBt.every(function(b) { return b.firstPick.diff != null && Math.abs(b.firstPick.diff) <= 3; }), JSON.stringify(oBt.map(function(b) { return b.firstPick.diff; })));
+  const oPl = cmOutlookPlan({firstSpray: '2033-04-25', bloom: '2033-06-12', veraison: '2033-08-14', firstPick: '2033-09-20', lastPick: '2033-10-03'});
+  ok('outlook plan: bloom protection, crop estimate, harvest window, library links', oPl.some(function(p) { return /Protect bloom/.test(p.name) && p.lib.indexOf('botrytis-bunch-rot') >= 0; }) && oPl.some(function(p) { return /Lag-phase/.test(p.name) && p.from === '2033-07-27'; }) && oPl.some(function(p) { return p.name === 'Harvest window' && p.to === '2033-10-03'; }));
+  const oHist = [{manager: 'Results Partners', from: '2017-01-01'}, {manager: 'Century Vineyards', from: '2026-06-01'}];
+  ok('manager for a month', cmManagerFor(oHist, 2026, 5) === 'Results Partners' && cmManagerFor(oHist, 2026, 6) === 'Century Vineyards' && cmManagerFor(oHist, 2025, 9) === 'Results Partners');
+  const oBud = cmBudgetSummary([{year: 2026, version: 'final', category: 'A', item: 'Prune', month: 1, amount: 100, manager: 'Results Partners'}, {year: 2026, version: 'final', category: 'B', item: 'Prune', month: 1, amount: 90, manager: 'Century Vineyards'}, {year: 2026, version: 'final', category: 'A', item: 'Harvest', month: 9, amount: 500, manager: 'Results Partners'}, {year: 2026, version: 'final', category: 'B', item: 'Harvest', month: 9, amount: 400, manager: 'Century Vineyards'}], 2026, oHist);
+  ok('budget split by manager: Results Partners months then Century months', oBud.total.final === 500, JSON.stringify(oBud.total));
   const sel = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
   if (click('Reports', 'button')) { await wait(1500); }
   const sel2 = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
@@ -379,6 +397,8 @@ window.cmSmoke = async function(opts) {
   await vtab('Field work', /Block board/);
   ok('Vine Blocks, field work', /Block board/.test(T()) && /Re-entry and pre-harvest windows/.test(T()) && /Scouting and growth stages/.test(T()) && /Add photos/.test(T()) && /Labor and cost per block/.test(T()) && !bad(), bad());
   await vtab('Season and budget', /The typical year/);
+  for (let i = 0; i < 20 && !/Recommended work for/.test(T()); i++) await wait(1000);
+  ok('Vine Blocks, forecast year against actual years', /Every year at this vineyard/.test(T()) && /Forecast year \d{4}/.test(T()) && /Usual miss/.test(T()) && /Recommended work for/.test(T()) && /Protect bloom/.test(T()) && !bad(), bad());
   ok('Vine Blocks, season and budget', /The typical year/.test(T()) && /Season markers by year/.test(T()) && /budget: preliminary, final and actual/.test(T()) && !bad(), bad());
   await vtab('Equipment', /Maintenance log/);
   ok('Vine Blocks, equipment', /Airblast sprayer/.test(T()) && /Maintenance log/.test(T()) && /sprayer inspection not on file/.test(T()) && !bad(), bad());

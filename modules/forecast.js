@@ -193,4 +193,6 @@
   window.cmNextSprayDue = cmNextSprayDue;
   window.cmSeasonalOutlook = cmSeasonalOutlook;
   window.CmForecast = CmForecast;
+  window.cmForecastLoad = loadAll;
+  window.cmNormalsFrom = normalsFrom;
 })();
