@@ -20,7 +20,8 @@
   function num(x) { var n = Number(x); return x === null || x === undefined || x === '' || isNaN(n) ? null : n; }
   function db() { return supa.schema('cellarmate'); }
 
-  var CAPITAL = { 'Barrels': 1, 'Gas equipment': 1 };
+  var CAPITAL = { 'Barrels': 1, 'Gas equipment': 1, 'Small equipment': 1 };
+  var NOTCOGS = { 'Sales and marketing': 1 }; /* selling costs, kept out of cost of goods */
   var GROUPS = [
     ['Fruit', ['Grapes']],
     ['Fermentation and cellar supplies', ['Yeast', 'Yeast nutrient', 'ML bacteria', 'Enzyme', 'Acid', 'SO2', 'Lees / mouthfeel', 'Cleaning', 'Lab']],
@@ -71,7 +72,7 @@
   function cmCostSheet(lines, assets, ferm, y, galPerTon) {
     var byCat = {}, use = [];
     (lines || []).forEach(function (l) {
-      if (CAPITAL[l.category]) return;
+      if (CAPITAL[l.category] || NOTCOGS[l.category]) return;
       if (cmLineVintage(l) !== y) return;
       var k = l.category || 'Other'; byCat[k] = (byCat[k] || 0) + (num(l.amount) || 0); use.push(l);
     });
@@ -115,7 +116,7 @@
     var exportX = function () {
       var wb = XLSX.utils.book_new();
       all.forEach(function (s) { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s.rows.map(function (r) { return { Group: r.group, Category: r.cat, Amount: Math.round(r.amount * 100) / 100, 'Per case': s.cases ? Math.round(r.amount / s.cases * 100) / 100 : null }; }).concat([{ Group: 'Total', Amount: Math.round(s.total * 100) / 100 }, { Group: 'Tons', Amount: s.tons }, { Group: 'Gallons (est.)', Amount: Math.round(s.gallons) }, { Group: 'Cases (est.)', Amount: Math.round(s.cases) }])), 'Vintage ' + s.y); });
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(D.pl.map(function (p) { return { Vintage: cmLineVintage(p), Supplier: p.supplier, Date: p.doc_date, Document: p.doc, Description: p.description, Lot: p.lot_no, Qty: p.qty, Unit: p.unit, Amount: p.amount, Category: p.category, Group: CAPITAL[p.category] ? 'Asset' : cmCostGroup(p.category) }; })), 'All invoice lines');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(D.pl.map(function (p) { return { Vintage: cmLineVintage(p), Supplier: p.supplier, Date: p.doc_date, Document: p.doc, Description: p.description, Lot: p.lot_no, Qty: p.qty, Unit: p.unit, Amount: p.amount, Category: p.category, Group: CAPITAL[p.category] ? 'Asset' : NOTCOGS[p.category] ? 'Sales and marketing (not cost of goods)' : cmCostGroup(p.category) }; })), 'All invoice lines');
       XLSX.writeFile(wb, 'CellarMate_cost_sheet_' + new Date().toISOString().slice(0, 10) + '.xlsx');
     };
     var lastG = '';
@@ -151,7 +152,7 @@
       cmE('div', { style: card() },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'By supplier, vintage ' + y),
         Object.keys(sup).sort(function (a, b) { return sup[b] - sup[a]; }).map(function (k) { return cmE('div', { key: k, style: { display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' } }, cmE('span', null, k), cmE('span', null, money(sup[k]))); }),
-        cmE('div', { style: Object.assign(small(), { marginTop: 6 }) }, 'Bought as assets (not expensed): ' + money(capital.reduce(function (t, l) { return t + (num(l.amount) || 0); }, 0)) + ' on ' + capital.length + ' lines. See Assets.')),
+        cmE('div', { style: Object.assign(small(), { marginTop: 6 }) }, 'Bought as assets (not expensed): ' + money(capital.reduce(function (t, l) { return t + (num(l.amount) || 0); }, 0)) + ' on ' + capital.length + ' lines. See Assets. Sales and marketing kept out of cost of goods: ' + money(D.pl.filter(function (l) { return NOTCOGS[l.category]; }).reduce(function (t, l) { return t + (num(l.amount) || 0); }, 0)) + '.')),
       cmE('div', { style: card() },
         cmE('div', { style: { display: 'flex', justifyContent: 'space-between' } }, cmE('div', { style: { fontWeight: 700 } }, 'Invoice lines in vintage ' + y + ' (' + S.lines.length + ')'),
           cmE('button', { onClick: function () { setOpen(open ? '' : 'x'); }, style: { fontSize: 11, cursor: 'pointer' } }, open ? 'Hide' : 'Show')),

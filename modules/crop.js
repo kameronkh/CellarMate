@@ -32,7 +32,9 @@
     ['onewings', 'One cluster per shoot and wings'],
     ['target', 'Drop to target tons per acre'],
     ['pct', 'Drop a percent of clusters'],
-    ['green', 'Green drop at veraison (10%)']
+    ['green', 'Green drop at veraison (10%)'],
+    ['oneplus2', 'One per shoot plus 2, wings off (RRV 2023)'],
+    ['removeN', 'Remove N per vine, declump, wings off (Roots 2023)']
   ];
   /* c: count row; o: { scenario, lag, target, pct, comp } -> clusters, grams, tons, tpa, removed */
   function cmThinScenario(c, o) {
@@ -56,6 +58,8 @@
     }
     if (s === 'pct') { clusters = cl * (1 - (num(o.pct) || 0) / 100); if ((num(o.pct) || 0) >= 15) grams = gAsIs * (1 + comp); }
     if (s === 'green') { clusters = cl * 0.9; }
+    if (s === 'oneplus2') { clusters = Math.min(cl, (sh || cl * 0.62) + (num(o.extra) || 2)); grams = gNoWing; if (clusters < cl) grams = grams * (1 + comp); }
+    if (s === 'removeN') { clusters = Math.max(0, cl - (num(o.removeN) || 5)); grams = gNoWing * (1 + comp); }
     var before = cmCropTons(vines, cl, gAsIs, lag), tons = cmCropTons(vines, clusters, grams, lag);
     return { scenario: s, clusters: clusters, grams: grams, tons: tons, before: before, tpa: acres && tons != null ? tons / acres : null,
       beforeTpa: acres && before != null ? before / acres : null, removed: cl ? 1 - clusters / cl : 0, lag: lag, note: note };
@@ -91,7 +95,7 @@
     var site = props.site || {}, vy = site.name || 'Tystrya Estate';
     var s1 = React.useState(null), D = s1[0], setD = s1[1];
     var s2 = React.useState(null), yr = s2[0], setYr = s2[1];
-    var s3 = React.useState({ lag: 'mid', all: 'asis', target: '2.25', pct: '25', la: '0.2', heat: 'auto', per: {}, rowsBlock: '' }), O = s3[0], setO = s3[1];
+    var s3 = React.useState({ lag: 'mid', all: 'asis', target: '2.25', pct: '25', removeN: '5', la: '0.2', heat: 'auto', per: {}, rowsBlock: '' }), O = s3[0], setO = s3[1];
     var s4 = React.useState(''), msg = s4[0], setMsg = s4[1];
     var s5 = React.useState({ block: '', date: new Date().toISOString().slice(0, 10), vines: '', acres: '', shoots: '', clusters: '', grams: '', gw: '', lag: '2' }), F = s5[0], setF = s5[1];
     var load = function () {
@@ -117,7 +121,8 @@
     var setPer = function (b, v) { var p = Object.assign({}, O.per); if (v) p[b] = v; else delete p[b]; set('per', p); };
     var years = D.cc.map(function (c) { return c.vintage; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();
     var cc = D.cc.filter(function (c) { return c.vintage === yr; });
-    var latest = {}; cc.forEach(function (c) { var k = c.block; if (!latest[k] || String(c.count_date || '') >= String(latest[k].count_date || '')) latest[k] = c; });
+    var rank = function (c) { return (c.stage === 'post thin' ? '0' : '1') + String(c.count_date || ''); };
+    var latest = {}; cc.forEach(function (c) { var k = c.block; if (!latest[k] || rank(c) >= rank(latest[k])) latest[k] = c; });
     var blocks = Object.keys(latest).map(Number).sort(function (a, b) { return a - b; });
     var VB = {}; D.vb.forEach(function (b) { VB[b.block] = b; });
     var act = {}; D.eh.forEach(function (h) { var k = h.year + ':' + h.block; act[k] = (act[k] || 0) + (num(h.tons) || 0); });
@@ -127,7 +132,7 @@
     var res = blocks.map(function (b) {
       var c = Object.assign({}, latest[b]); if (!num(c.acres) && VB[b]) c.acres = VB[b].acres;
       var sc = O.per[b] || O.all;
-      var r = cmThinScenario(c, { scenario: sc, lag: lagOf(c), target: O.target, pct: O.pct });
+      var r = cmThinScenario(c, { scenario: sc, lag: lagOf(c), target: O.target, pct: O.pct, removeN: O.removeN });
       var rp = cmRipenCheck(r, num(c.shoots_per_vine), O.la, hIdx);
       return { b: b, c: c, sc: sc, r: r, rp: rp, actual: act[yr + ':' + b] };
     });
@@ -152,7 +157,8 @@
     var rowList = D.rows.filter(function (r) { return +r.block === rb && num(r.vines); });
     var rowVines = rowList.reduce(function (t, r) { return t + num(r.vines); }, 0);
     var hist = years.map(function (y) {
-      var list = D.cc.filter(function (c) { return c.vintage === y; });
+      var all = D.cc.filter(function (c) { return c.vintage === y; }), post = all.filter(function (c) { return c.stage === 'post thin'; });
+      var list = post.length ? post : all;
       var est = 0, lagW = 0, pick = 0, n = 0;
       list.forEach(function (c) { var a = act[y + ':' + c.block]; var e = cmCropTons(num(c.vines), num(c.clusters_per_vine), num(c.grams_with_wings) || num(c.grams_per_cluster), num(c.lag_mid)); est += e || 0; if (a) { pick += a; lagW += (e || 0) / num(c.lag_mid); n++; } });
       return { y: y, est: est, pick: pick, factor: lagW ? pick / lagW : null, n: n, stage: list[0] ? list[0].stage : '', by: list[0] ? list[0].counted_by : '' };
@@ -167,6 +173,7 @@
           cmE('label', { style: small }, 'Lag factor ', cmE('select', { value: O.lag, onChange: function (e) { set('lag', e.target.value); }, style: inp }, [opt('low', 'low'), opt('mid', 'middle'), opt('high', 'high')])),
           cmE('label', { style: small }, 'Scenario for all blocks ', cmE('select', { value: O.all, onChange: function (e) { set('all', e.target.value); }, style: inp }, SCEN.map(function (s) { return opt(s[0], s[1]); }))),
           cmE('label', { style: small }, 'Target t/a ', cmE('input', { value: O.target, onChange: function (e) { set('target', e.target.value); }, style: Object.assign({}, inp, { width: 50 }) })),
+          cmE('label', { style: small }, 'Remove N ', cmE('input', { value: O.removeN, onChange: function (e) { set('removeN', e.target.value); }, style: Object.assign({}, inp, { width: 40 }) })),
           cmE('label', { style: small }, 'Drop % ', cmE('input', { value: O.pct, onChange: function (e) { set('pct', e.target.value); }, style: Object.assign({}, inp, { width: 44 }) })),
           cmE('label', { style: small }, 'Leaf m2 per shoot ', cmE('input', { value: O.la, onChange: function (e) { set('la', e.target.value); }, style: Object.assign({}, inp, { width: 50 }) })),
           cmE('label', { style: small }, 'Season ', cmE('select', { value: O.heat, onChange: function (e) { set('heat', e.target.value); }, style: inp }, [opt('auto', 'from weather'), opt('cool', 'cool'), opt('normal', 'normal'), opt('warm', 'warm')]))),
@@ -203,6 +210,14 @@
             return cmE('tr', { key: r.row_label }, cmE('td', { style: td(true) }, r.row_label), cmE('td', { style: td() }, num(r.vines)), cmE('td', { style: td() }, f2((rr.r.before || 0) * share, 3)), cmE('td', { style: td() }, f2((rr.r.tons || 0) * share, 3)), cmE('td', { style: td() }, f2(rr.r.clusters, 1)));
           })))) : cmE('div', { style: small }, 'No row list for this block yet.')),
 
+      cmE('div', { style: card },
+        cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Thinning directions given by each winemaker'),
+        D.plans.filter(function (p) { return p.note; }).length ? cmE('div', { style: { overflowX: 'auto' } }, cmE('table', { style: { borderCollapse: 'collapse', width: '100%', minWidth: 420 } },
+          cmE('thead', null, cmE('tr', null, ['Year', 'Block', 'Rows', 'Direction'].map(function (x, i) { return cmE('th', { key: x, style: th(i > 2) }, x); }))),
+          cmE('tbody', null, D.plans.filter(function (p) { return p.note; }).sort(function (a, b) { return a.vintage - b.vintage || a.block - b.block; }).map(function (p) {
+            return cmE('tr', { key: p.id }, cmE('td', { style: td() }, p.vintage), cmE('td', { style: td() }, p.block), cmE('td', { style: td() }, p.row_label || ''), cmE('td', { style: td(true) }, p.note));
+          })))) : cmE('div', { style: small }, 'None saved yet.'),
+        cmE('div', { style: Object.assign({}, small, { marginTop: 4 }) }, 'From the 2023 Results Partners thinning worksheet. In 2023 the pre-thin count was 23 to 28 clusters per vine and the post-thin count 15 to 20.')),
       cmE('div', { style: card },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Estimate against pick, every year'),
         cmE('div', { style: { overflowX: 'auto' } }, cmE('table', { style: { borderCollapse: 'collapse', width: '100%', minWidth: 460 } },
