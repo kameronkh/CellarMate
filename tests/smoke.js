@@ -283,6 +283,41 @@ window.cmSmoke = async function(opts) {
   const oDel = oIns.data ? await dbf.from('vineyard_observations').delete().eq('id', oIns.data.id).select('id') : {};
   const lDel = lIns.data ? await dbf.from('vineyard_labor').delete().eq('id', lIns.data.id).select('id') : {};
   ok('scouting note and labor entry save and delete', !oIns.error && !lIns.error && oDel.data.length === 1 && lDel.data.length === 1, (oIns.error || lIns.error || {}).message || '');
+  /* 1v. forecast, spray planning, season, budget, equipment */
+  ok('season modules loaded', !!(window.CmForecast && window.CmSprayHistory && window.CmSeason && window.CmEquipment && window.cmBotrytisDaily && window.cmBudgetSummary && window.cmMaintenanceDue));
+  const hrs = []; const tf = [], rh = [], rn = [], wd = []; for (let i = 0; i < 48; i++) { hrs.push('2030-06-0' + (i < 24 ? 1 : 2) + 'T' + ('0' + (i % 24)).slice(-2) + ':00'); tf.push(68); rh.push(i < 24 && i < 12 ? 95 : 60); rn.push(0); wd.push(4); }
+  const bd = cmBotrytisDaily(hrs, tf, rh, rn);
+  ok('Botrytis risk: 12 wet hours at 68°F is high, a dry day is low', bd[0].wetHours === 12 && bd[0].level === 'high' && bd[1].level === 'low', JSON.stringify(bd.map(function(b) { return [b.wetHours, b.level, Math.round(b.risk * 100)]; })));
+  const sw0 = cmSprayWindows(hrs, tf, rn, wd, {});
+  ok('spray windows: dry calm daytime hours count', sw0[0].hours >= 10 && sw0[0].from === '06:00', JSON.stringify(sw0));
+  const rn2 = rn.slice(); rn2[30] = 0.3; const sw1 = cmSprayWindows(hrs, tf, rn2, wd, {});
+  ok('spray windows close when rain is due within 24 hours', sw1[0].hours < sw0[0].hours, JSON.stringify(sw1));
+  const mfc = cmMildewForecast(60, 0, [{date: 'a', gt: 7, hot: 0}, {date: 'b', gt: 2, hot: 1}]);
+  ok('mildew forecast continues the index', mfc[0].index === 80 && mfc[1].index === 60, JSON.stringify(mfc));
+  const nd = cmNextSprayDue('2030-06-01', 70);
+  ok('next spray due in about 10 days at high pressure', nd.due === '2030-06-11' && cmNextSprayDue('2030-06-01', 45).gap === 14, JSON.stringify(nd));
+  const so = cmSeasonalOutlook({time: ['2030-07-01', '2030-07-02'], temperature_2m_max_member01: [80, 82], temperature_2m_max_member02: [84, 86], precipitation_sum_member01: [0, 0.1], precipitation_sum_member02: [0, 0]}, {7: {tmax: 80, rain: 0.5}});
+  ok('seasonal outlook against normals', so.length === 1 && so[0].tAnom > 0 && so[0].members === 2, JSON.stringify(so));
+  const sv = await Promise.all(['vineyard_sprays', 'tissue_tests', 'estate_harvests', 'harvest_estimates'].map(function(t) { return cmFetch(t); }));
+  const pu = cmProductUsage(sv[0], 14.2); const mic = pu['microthiol'];
+  ok('product use from the spray records (Microthiol 2024)', mic && mic.years[2024] && mic.years[2024].amount > 100 && mic.unit === 'lb', mic ? JSON.stringify(mic.years[2024]) : 'missing');
+  const ue = mic ? cmUsageEstimate(mic, 14.2, 2026) : null;
+  ok('next year product estimate', ue && ue.amount > 0 && ue.years.length >= 1, JSON.stringify(ue));
+  ok('typical calendar covers the season', cmTypicalCalendar().length === 11 && cmTypicalCalendar()[7].stage === 'Veraison');
+  const hm = cmHistoryMarkers({tissue: sv[1], sprays: sv[0], harvests: sv[2], obs: []});
+  ok('season markers from the records (veraison sampling, sprays, picks)', hm.typical.veraisonSample && hm.typical.firstSpray && hm.typical.firstPick && hm.rows.length >= 8, JSON.stringify(hm.typical));
+  const eva = cmEstimateVsActual(sv[3].filter(function(x) { return x.vineyard === 'Tystrya Estate'; }), sv[2], 2026);
+  ok('2026 crop estimate against harvest', Math.abs(eva.total.est - 46.83) < 0.1 && eva.total.actual > 40 && eva.rows.length === 13, JSON.stringify(eva.total));
+  const tk = await supa.schema('cellarmate').from('vineyard_tasks').select('*').eq('kind', 'harvest').gte('planned_on', '2026-01-01').lte('planned_on', '2026-12-31');
+  const ea = cmExpectedActual(tk.data || []);
+  ok('2026 pick schedule: expected against actual tons', ea.length === 7 && ea.every(function(r) { return r.actual > 0 && r.expected > 0; }), ea.length);
+  const bs = cmBudgetSummary([{year: 2030, version: 'preliminary', category: 'Canopy', item: 'Thin', amount: 1000, month: 5}, {year: 2030, version: 'final', category: 'Canopy', item: 'Thin', amount: 1200, hours: 40}, {year: 2030, version: 'actual', category: 'Canopy', item: 'Thin', amount: 1350, hours: 45, done_on: '2030-06-10'}, {year: 2029, version: 'actual', category: 'Canopy', item: 'Thin', amount: 1}], 2030);
+  ok('budget: preliminary, final, actual and variance', bs.rows.length === 1 && bs.rows[0].variance === 150 && bs.rows[0].expectedMonth === 5 && bs.rows[0].doneMonth === 6 && bs.total.actual === 1350, JSON.stringify(bs.rows[0]));
+  const eqd = await Promise.all([supa.schema('cellarmate').from('vineyard_equipment').select('*'), supa.schema('cellarmate').from('equipment_maintenance').select('*')]);
+  const due0 = cmMaintenanceDue(eqd[0].data || [], eqd[1].data || [], '2026-11-22');
+  ok('equipment: sprayer inspections 2017 to 2025 on file, 2026 flagged', (eqd[1].data || []).filter(function(l) { return l.kind === 'inspection'; }).length >= 9 && due0.some(function(d) { return d.kind === 'inspection' && /2026/.test(d.text); }), JSON.stringify(due0.map(function(d) { return d.text; })));
+  const due1 = cmMaintenanceDue([{id: 1, name: 'T', kind: 'tractor', status: 'in use', service_every_months: 12}], [{equipment_id: 1, done_on: '2029-01-10', kind: 'service'}], '2030-02-01');
+  ok('equipment: service past its interval is due', due1.length === 1 && /2030-01-10/.test(due1[0].text), JSON.stringify(due1));
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -313,22 +348,34 @@ window.cmSmoke = async function(opts) {
   if (sel2) { const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
     for (const rep of ['malic','so2','tart','top','chard','ml','chsul','eat']) { set.call(sel2, rep); sel2.dispatchEvent(new Event('change', {bubbles:true})); await wait(1300); ok('report ' + rep, document.querySelectorAll('tbody tr').length > 0 && !bad(), bad()); } }
 
-  /* 3b. vineyard side */
+  /* 3b. vineyard side: every section of Vine Blocks */
   nav('Cellar'); await wait(1200);
   const vb = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Vine Blocks'; })[0];
-  if (vb) { vb.click(); for (let i = 0; i < 20 && !/Spray program and rain/.test(document.body.innerText); i++) await wait(1000); }
-  ok('Vine Blocks shows weather and harvest', /Heat units and rain/.test(document.body.innerText) && /Estate blocks: tons per acre/.test(document.body.innerText) && /Spray program and rain/.test(document.body.innerText) && !bad(), bad() || (/Fetching weather/.test(document.body.innerText) ? 'weather still loading' : 'spray card missing'));
-  for (let i = 0; i < 40; i++) { const tx = document.body.innerText; if (/index started|index never started/.test(tx) && !/Loading weather and block history/.test(tx)) break; await wait(1000); }
-  for (let i = 0; i < 20 && !/Original files/.test(document.body.innerText); i++) await wait(1000);
-  ok('Vine Blocks shows vineyard records and original files', /Vineyard records/.test(document.body.innerText) && /Spray history/.test(document.body.innerText) && /Original files/.test(document.body.innerText) && !bad(), bad());
-  for (let i = 0; i < 15 && !/Schedule and owner access/.test(document.body.innerText); i++) await wait(1000);
-  const pvb = Array.from(document.querySelectorAll('button')).filter(function(b) { return b.innerText.trim() === 'Preview what the owner sees'; })[0];
-  if (pvb) { pvb.click(); for (let i = 0; i < 20 && !/Records and files \(/.test(document.body.innerText); i++) await wait(1000); }
-  ok('Vine Blocks shows the schedule, owner access and the owner preview', /Schedule and owner access/.test(document.body.innerText) && /vineyard owner view/i.test(document.body.innerText) && /Done lately/.test(document.body.innerText) && /From the field/.test(document.body.innerText) && /Records and files \(/.test(document.body.innerText) && !bad(), bad());
-  if (pvb) { const cl = Array.from(document.querySelectorAll('button')).filter(function(b) { return b.innerText.trim() === 'Close preview'; })[0]; if (cl) cl.click(); await wait(500); }
-  ok('Vine Blocks shows the field work board', /Field work/.test(document.body.innerText) && /Block board/.test(document.body.innerText) && /Re-entry and pre-harvest windows/.test(document.body.innerText) && /Labor and cost per block/.test(document.body.innerText) && !bad(), bad());
-  ok('Vine Blocks shows the certification paperwork', /Certification paperwork/.test(document.body.innerText) && /Download pesticide use report/.test(document.body.innerText) && !bad(), bad());
-  ok('Vine Blocks shows mildew pressure, ripeness samples and harvest watch', /Powdery mildew pressure \(Gubler-Thomas index\)/.test(document.body.innerText) && /Ripeness samples/.test(document.body.innerText) && /Harvest watch: Estate/.test(document.body.innerText) && /index started/.test(document.body.innerText) && !bad(), bad() || document.body.innerText.slice(document.body.innerText.indexOf('Powdery'), document.body.innerText.indexOf('Powdery') + 200));
+  if (vb) { vb.click(); await wait(1500); }
+  const vtab = async function(label, re, secs) { const bt = Array.from(document.querySelectorAll('button')).filter(function(x) { return x.innerText.trim() === label; })[0]; if (bt) bt.click(); for (let i = 0; i < (secs || 20) && !re.test(document.body.innerText); i++) await wait(1000); return !!bt; };
+  const T = function() { return document.body.innerText; };
+  await vtab('Weather and harvest', /Estate blocks: tons per acre/, 25);
+  for (let i = 0; i < 25 && /Loading weather and block history/.test(T()); i++) await wait(1000);
+  ok('Vine Blocks, weather and harvest', /Heat units and rain/.test(T()) && /Estate blocks: tons per acre/.test(T()) && /Ripeness samples/.test(T()) && /Harvest watch: Estate/.test(T()) && /Crop estimates and pick window/.test(T()) && !bad(), bad());
+  await vtab('Forecast and sprays', /Next 16 days/, 30);
+  for (let i = 0; i < 40; i++) { if (/index started|index never started/.test(T()) && /Product use and/.test(T())) break; await wait(1000); }
+  ok('Vine Blocks, forecast and sprays', /Next 16 days/.test(T()) && /Seasonal outlook/.test(T()) && /Spray program and rain/.test(T()) && /Powdery mildew pressure \(Gubler-Thomas index\)/.test(T()) && /index started/.test(T()) && /Spray history and the weather/.test(T()) && /Product use and/.test(T()) && !bad(), bad());
+  await vtab('Field work', /Block board/);
+  ok('Vine Blocks, field work', /Block board/.test(T()) && /Re-entry and pre-harvest windows/.test(T()) && /Scouting and growth stages/.test(T()) && /Add photos/.test(T()) && /Labor and cost per block/.test(T()) && !bad(), bad());
+  await vtab('Season and budget', /The typical year/);
+  ok('Vine Blocks, season and budget', /The typical year/.test(T()) && /Season markers by year/.test(T()) && /budget: preliminary, final and actual/.test(T()) && !bad(), bad());
+  await vtab('Equipment', /Maintenance log/);
+  ok('Vine Blocks, equipment', /Airblast sprayer/.test(T()) && /Maintenance log/.test(T()) && /sprayer inspection not on file/.test(T()) && !bad(), bad());
+  await vtab('Paperwork', /Download pesticide use report/);
+  ok('Vine Blocks, paperwork', /Certification paperwork/.test(T()) && /Download pesticide use report/.test(T()) && !bad(), bad());
+  await vtab('Records', /Original files/);
+  ok('Vine Blocks, records', /Vineyard records/.test(T()) && /Spray history/.test(T()) && /Original files/.test(T()) && !bad(), bad());
+  await vtab('Schedule and owners', /Schedule and owner access/);
+  const pvb = Array.from(document.querySelectorAll('button')).filter(function(x) { return x.innerText.trim() === 'Preview what the owner sees'; })[0];
+  if (pvb) { pvb.click(); for (let i = 0; i < 20 && !/Records and files \(/.test(T()); i++) await wait(1000); }
+  ok('Vine Blocks, schedule, owner access and owner preview', /Schedule and owner access/.test(T()) && /vineyard owner view/i.test(T()) && /Done lately/.test(T()) && /From the field/.test(T()) && /Records and files \(/.test(T()) && !bad(), bad());
+  if (pvb) { const cl = Array.from(document.querySelectorAll('button')).filter(function(x) { return x.innerText.trim() === 'Close preview'; })[0]; if (cl) cl.click(); await wait(500); }
+  await vtab('Weather and harvest', /Heat units and rain/);
   /* 4. layout at this width */
   const over = Array.from(document.querySelectorAll('button,input,select,table')).filter(function(e) { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 2 && !e.closest('[style*=overflow-x]'); }).length;
   ok('nothing cut off at ' + innerWidth + ' px', document.documentElement.scrollWidth <= innerWidth + 2 && !over, over + ' cut off');

@@ -1,4 +1,6 @@
 /* CellarMate module: Vineyard weather and harvest
+   Sections (tabs): Weather and harvest, Forecast and sprays, Field work, Season and budget, Equipment,
+   Paperwork, Schedule and owners, Records. The last tab used is remembered on the device.
    Lives on the vineyard side (Vine Blocks screen).
    1. Weather per vineyard location (Open-Meteo daily archive, cached in cellarmate.weather_daily):
       heat units (growing degree days, base 50°F, Apr 1 to Oct 31), rain by month, rain events
@@ -164,6 +166,9 @@
     return { days: have.concat(fresh), added: fresh.length };
   }
 
+  /* sections of the vineyard screen */
+  var TABS = [['weather', 'Weather and harvest'], ['sprays', 'Forecast and sprays'], ['field', 'Field work'], ['season', 'Season and budget'], ['equipment', 'Equipment'], ['paperwork', 'Paperwork'], ['owners', 'Schedule and owners'], ['records', 'Records']];
+
   /* ── screen ── */
   function CmVineyard() {
     var s = React.useState(null), D = s[0], setD = s[1];
@@ -173,6 +178,7 @@
     var ys = React.useState('recent'), span = ys[0], setSpan = ys[1];
     var fs = React.useState({ vintage: new Date().getFullYear() + (new Date().getMonth() >= 10 ? 1 : 0), block: '', est_tons: '', target_tons_acre: '', est_date: '', method: '', note: '' }), form = fs[0], setForm = fs[1];
     var ls = React.useState(null), edit = ls[0], setEdit = ls[1];
+    var ts = React.useState(function () { try { return localStorage.getItem('cm_vy_tab') || 'weather'; } catch (x) { return 'weather'; } }), tab = ts[0], setTab = ts[1];
     var reload = function () {
       ['vineyards', 'harvest_estimates'].forEach(function (t) { if (typeof CM_CACHE !== 'undefined') delete CM_CACHE[t]; });
       return Promise.all(['vineyards', 'vineyard_blocks', 'estate_harvests', 'picks', 'harvest_estimates', 'vineyard_sprays'].map(function (t) { return cmFetch(t); }))
@@ -239,7 +245,7 @@
     var fld = function (k, label, type) { return cmE('label', { key: k, style: { flex: '1 1 120px', fontSize: 11, color: C.textDim } }, label, cmE('input', { type: type || 'text', value: (edit ? edit[k] : form[k]) == null ? '' : (edit ? edit[k] : form[k]), onChange: function (ev) { var v = ev.target.value; if (edit) setEdit(Object.assign({}, edit, (function () { var o = {}; o[k] = v; return o; })())); else setForm(Object.assign({}, form, (function () { var o = {}; o[k] = v; return o; })())); }, style: inp })); };
 
     return cmE('div', { style: { marginBottom: 16 } },
-      cmE('div', { style: { fontSize: 15, fontWeight: 700, margin: '4px 0 8px' } }, 'Weather and harvest'),
+      cmE('div', { style: { fontSize: 15, fontWeight: 700, margin: '4px 0 8px' } }, 'Vineyard'),
       err ? cmE('div', { style: { color: C.red, fontSize: 12, marginBottom: 6 } }, err) : null,
       /* vineyard picker + location */
       cmE('div', { style: card },
@@ -259,8 +265,23 @@
           cmE('label', { style: { fontSize: 11, color: C.textDim, display: 'flex', alignItems: 'center', gap: 4 } }, cmE('input', { type: 'checkbox', checked: !!edit.exact, onChange: function (ev) { setEdit(Object.assign({}, edit, { exact: ev.target.checked })); } }), 'Exact vineyard location'),
           cmE('button', { onClick: saveSite, style: Object.assign({}, btn, { background: C.accent, color: '#fff' }) }, 'Save')) : null),
 
+      /* sections */
+      cmE('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', margin: '4px 0 10px' } }, TABS.map(function (t) {
+        return cmE('button', { key: t[0], onClick: function () { setTab(t[0]); try { localStorage.setItem('cm_vy_tab', t[0]); } catch (x) { } }, style: { background: tab === t[0] ? C.accent : C.card, color: tab === t[0] ? '#fff' : C.accentLight, border: '1px solid ' + (tab === t[0] ? C.accent : C.cardBorder), borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' } }, t[1]);
+      })),
+
+      /* forecast, spray planning and product use (forecast.js, sprayplan.js) */
+      tab === 'sprays' && site && window.CmForecast ? cmE(window.CmForecast, { key: 'fc' + (wsite && wsite.id), site: wsite, days: wx.days || [], sprays: D.sprays }) : null,
+      tab === 'sprays' && site && window.CmSprayHistory ? cmE(window.CmSprayHistory, { key: 'sh' + site.id, site: site, days: wx.days || [], sprays: D.sprays }) : null,
+
+      /* season calendar, expected against actual, budget (season.js) */
+      tab === 'season' && site && window.CmSeason ? cmE(window.CmSeason, { key: 'season' + site.id, site: site, blocks: H.blocks, seasons: seasons, est: D.est }) : null,
+
+      /* equipment and maintenance (equipment.js) */
+      tab === 'equipment' && site && window.CmEquipment ? cmE(window.CmEquipment, { key: 'eq' + site.id, site: site }) : null,
+
       /* season table */
-      cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
+      tab === 'weather' ? (cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Heat units and rain' + (wsite && wsite !== site ? ' (Estate weather)' : '')),
         cmE('div', { style: Object.assign({}, small, { marginBottom: 6 }) }, 'Growing degree days, base 50°F, counted Apr 1 to Oct 31. Daily model data for the location (Open-Meteo archive), cached here. Rain in inches.'),
         wx.loading ? cmE('div', { style: small }, 'Fetching weather...') : wx.error ? cmE('div', { style: { color: C.red, fontSize: 12 } }, wx.error) :
@@ -272,27 +293,27 @@
               cmE('td', { style: td }, r1(o.gdd, 0)), cmE('td', { style: td }, r1(o.at(y + '-08-31'), 0)), cmE('td', { style: td }, r1(o.at(y + '-09-15'), 0)), cmE('td', { style: td }, r1(o.at(y + '-09-30'), 0)),
               cmE('td', { style: td }, r1(o.rain, 2)), cmE('td', { style: td }, r1(o.rainSep, 2)), cmE('td', { style: td }, r1(o.rainOct, 2)), cmE('td', { style: td }, o.hot95),
               cmE('td', { style: td }, p[0] ? mmdd(p[0]) : ''), cmE('td', { style: td }, p.length ? mmdd(p[p.length - 1]) : ''), cmE('td', { style: td }, p[0] ? r1(o.at(p[0]), 0) : ''));
-          })))),
+          }))))) : null,
 
       /* rain events */
-      wx.days ? cmE('div', { style: card },
+      tab === 'weather' ? (wx.days ? cmE('div', { style: card },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Rain during harvest season (Aug to Oct, days with 0.25 in or more)'),
         showYears.map(function (y) {
           var ev = seasons[y].events, p = picksOf(y), first = p[0], last = p[p.length - 1];
           return cmE('div', { key: y, style: { fontSize: 12, marginBottom: 4 } }, cmE('b', null, y + ': '),
             ev.length ? ev.map(function (x, i) { var inPick = first && x.date >= addDays(first, -3) && x.date <= last; return cmE('span', { key: i, style: { marginRight: 8, color: inPick ? C.orange : C.text } }, mmdd(x.date) + ' ' + r1(x.p, 2) + '"'); }) : 'none');
         }),
-        cmE('div', { style: small }, 'Orange: within the pick window that year (3 days before the first pick to the last pick).')) : null,
+        cmE('div', { style: small }, 'Orange: within the pick window that year (3 days before the first pick to the last pick).')) : null) : null,
 
       /* monthly rain */
-      wx.days ? cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
+      tab === 'weather' ? (wx.days ? cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Rain by month (in)'),
         cmE('table', { style: { borderCollapse: 'collapse', width: '100%', minWidth: 560 } },
           cmE('thead', null, cmE('tr', null, cmE('th', { style: L(th) }, 'Year'), ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map(function (m) { return cmE('th', { key: m, style: th }, m); }))),
-          cmE('tbody', null, showYears.map(function (y) { return cmE('tr', { key: y }, cmE('td', { style: L(td) }, y), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(function (m) { var v = seasons[y].months[m]; return cmE('td', { key: m, style: td }, v == null ? '' : r1(v, 2)); })); })))) : null,
+          cmE('tbody', null, showYears.map(function (y) { return cmE('tr', { key: y }, cmE('td', { style: L(td) }, y), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(function (m) { var v = seasons[y].months[m]; return cmE('td', { key: m, style: td }, v == null ? '' : r1(v, 2)); })); })))) : null) : null,
 
       /* estate blocks vs history */
-      vy === 'Tystrya Estate' ? cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
+      tab === 'weather' ? (vy === 'Tystrya Estate' ? cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Estate blocks: tons per acre by year'),
         cmE('div', { style: Object.assign({}, small, { marginBottom: 6 }) }, 'From the Estate harvest records (sold and kept fruit), using each block\'s current acres. Orange: 25% or more above the block\'s average of the other years. GDD at pick is the heat the block had reached when picked, averaged over the years.'),
         cmE('table', { style: { borderCollapse: 'collapse', width: '100%', minWidth: 720 } },
@@ -306,11 +327,10 @@
                 return cmE('td', { key: y, style: Object.assign({}, td, { color: hi ? C.orange : C.text }), title: r1(c.tons, 2) + ' t' + (c.missing ? ' · ' + c.missing + ' pick(s) without tons' : '') + (c.gddPick ? ' · ' + r1(c.gddPick, 0) + ' GDD at pick' : '') }, c.tpa ? r1(c.tpa, 2) : (c.missing ? '?' : '0'));
               }),
               cmE('td', { style: td }, avg ? r1(avg, 2) : ''), cmE('td', { style: td }, b.gddPick ? r1(b.gddPick, 0) : ''));
-          })))) : null,
-
+          })))) : null) : null,
 
       /* spray program */
-      vy === 'Tystrya Estate' && D.sprays.length && wx.days ? cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
+      tab === 'sprays' ? (vy === 'Tystrya Estate' && D.sprays.length && wx.days ? cmE('div', { style: Object.assign({}, card, { overflowX: 'auto' }) },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Spray program and rain'),
         cmE('div', { style: Object.assign({}, small, { marginBottom: 6 }) }, 'Orange: 0.5 in of rain or more in the 3 days after the spray, so check whether it needs to go on again. Heat units counted since the previous spray.'),
         cmE('table', { style: { borderCollapse: 'collapse', width: '100%', minWidth: 620 } },
@@ -319,21 +339,22 @@
             return cmE('tr', { key: r.date + r.spray, title: r.products || '' }, cmE('td', { style: L(td) }, r.spray), cmE('td', { style: L(td) }, r.date), cmE('td', { style: L(td) }, r.stage || ''), cmE('td', { style: L(Object.assign({}, td, { whiteSpace: 'normal' })) }, r.reason || ''),
               cmE('td', { style: td }, r.gap == null ? '' : r.gap), cmE('td', { style: td }, r.heat == null ? '' : r1(r.heat, 0)),
               cmE('td', { style: Object.assign({}, td, { color: r.washoff ? C.orange : C.text }) }, r.rain3 == null ? 'no data yet' : r1(r.rain3, 2) + '"'));
-          })))) : null,
+          })))) : null) : null,
+
       /* grower tons */
-      vy !== 'Tystrya Estate' ? cmE('div', { style: card },
+      tab === 'weather' ? (vy !== 'Tystrya Estate' ? cmE('div', { style: card },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, vy + ': fruit received by vintage'),
-        (function () { var g = H.growers.filter(function (x) { return x.vineyard === vy; })[0]; if (!g) return cmE('div', { style: small }, 'No picks on file.'); return Object.keys(g.years).sort().map(function (y) { var c = g.years[y]; return cmE('div', { key: y, style: { fontSize: 12 } }, y + ': ' + r1(c.tons, 2) + ' t in ' + c.picks + ' pick(s)' + (c.first ? ', ' + mmdd(c.first) + (c.last !== c.first ? ' to ' + mmdd(c.last) : '') : '') + (num(site && site.acres) ? ' · ' + r1(c.tons / site.acres, 2) + ' t/ac' : '')); }); })()) : null,
+        (function () { var g = H.growers.filter(function (x) { return x.vineyard === vy; })[0]; if (!g) return cmE('div', { style: small }, 'No picks on file.'); return Object.keys(g.years).sort().map(function (y) { var c = g.years[y]; return cmE('div', { key: y, style: { fontSize: 12 } }, y + ': ' + r1(c.tons, 2) + ' t in ' + c.picks + ' pick(s)' + (c.first ? ', ' + mmdd(c.first) + (c.last !== c.first ? ' to ' + mmdd(c.last) : '') : '') + (num(site && site.acres) ? ' · ' + r1(c.tons / site.acres, 2) + ' t/ac' : '')); }); })()) : null) : null,
 
       /* powdery mildew pressure (mildew.js) */
-      vy === 'Tystrya Estate' && wx.days && window.CmMildew ? cmE(window.CmMildew, { site: wsite, days: wx.days, sprays: D.sprays, years: showYears }) : null,
+      tab === 'sprays' ? (vy === 'Tystrya Estate' && wx.days && window.CmMildew ? cmE(window.CmMildew, { site: wsite, days: wx.days, sprays: D.sprays, years: showYears }) : null) : null,
 
       /* ripeness samples (ripeness.js) */
-      window.CmRipeness ? cmE(window.CmRipeness, { vineyard: vy, site: site, blocks: H.blocks, seasons: seasons, normal: normal }) : null,
-      vy === 'Tystrya Estate' && window.CmHarvestWatch ? cmE(window.CmHarvestWatch, { always: true }) : null,
+      tab === 'weather' ? (window.CmRipeness ? cmE(window.CmRipeness, { vineyard: vy, site: site, blocks: H.blocks, seasons: seasons, normal: normal }) : null) : null,
+      tab === 'weather' ? (vy === 'Tystrya Estate' && window.CmHarvestWatch ? cmE(window.CmHarvestWatch, { always: true }) : null) : null,
 
       /* crop estimates */
-      cmE('div', { style: card },
+      tab === 'weather' ? (cmE('div', { style: card },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Crop estimates and pick window'),
         cmE('div', { style: Object.assign({}, small, { marginBottom: 6 }) }, 'Enter a crop estimate (from cluster counts or lag phase) to check it against the target tons per acre, the best year on file, and, for Estate blocks, when the block should reach its usual pick heat against the target window.'),
         cmE('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' } },
@@ -346,19 +367,19 @@
             cmE('div', { style: { display: 'flex', gap: 8, fontSize: 12 } }, cmE('b', { style: { flex: 1 } }, r.e.vintage + ' · ' + (r.e.block ? 'Block ' + r.e.block : 'Whole vineyard') + ' · ' + r1(r.e.est_tons, 2) + ' t' + (r.chk.tpa ? ' (' + r1(r.chk.tpa, 2) + ' t/ac)' : '')), cmE('button', { onClick: function () { delEst(r.e.id); }, style: Object.assign({}, btn, { padding: '2px 8px' }) }, 'Delete')),
             r.chk.flags.map(function (f, i) { return cmE('div', { key: i, style: { fontSize: 12, color: flagC[f.level] } }, f.text); }),
             !r.chk.flags.length ? cmE('div', { style: small }, 'Add a target t/ac or acres to check this estimate.') : null);
-        }) : cmE('div', { style: Object.assign({}, small, { marginTop: 6 }) }, 'No estimates for ' + vy + ' yet.')),
+        }) : cmE('div', { style: Object.assign({}, small, { marginTop: 6 }) }, 'No estimates for ' + vy + ' yet.'))) : null,
 
       /* block board, safety windows, scouting, growth stages and labor (fieldwork.js) */
-      site && window.CmFieldWork ? cmE(window.CmFieldWork, { key: 'field' + site.id, site: site, sprays: D.sprays, seasons: seasons }) : null,
+      tab === 'field' ? (site && window.CmFieldWork ? cmE(window.CmFieldWork, { key: 'field' + site.id, site: site, sprays: D.sprays, seasons: seasons }) : null) : null,
 
       /* LIVE and organic paperwork (certs.js) */
-      site && window.CmCertPapers ? cmE(window.CmCertPapers, { key: 'cert' + site.id, site: site }) : null,
+      tab === 'paperwork' ? (site && window.CmCertPapers ? cmE(window.CmCertPapers, { key: 'cert' + site.id, site: site }) : null) : null,
 
       /* schedule, owner access and owner preview (owner.js) */
-      site && window.CmVineyardTeam ? cmE(window.CmVineyardTeam, { key: 'team' + site.id, site: site }) : null,
+      tab === 'owners' ? (site && window.CmVineyardTeam ? cmE(window.CmVineyardTeam, { key: 'team' + site.id, site: site }) : null) : null,
 
       /* vineyard records and original files (vinerecords.js) */
-      vy === 'Tystrya Estate' && window.CmVineRecords ? cmE(window.CmVineRecords, { site: site, onSaved: reload }) : null);
+      tab === 'records' ? (vy === 'Tystrya Estate' && window.CmVineRecords ? cmE(window.CmVineRecords, { site: site, onSaved: reload }) : null) : null);
   }
 
   window.cmGddSeason = cmGddSeason;

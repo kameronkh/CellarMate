@@ -4,6 +4,7 @@
      shown per block so nobody walks into a sprayed block or picks too soon.
    - A scouting and growth stage log (cellarmate.vineyard_observations) using the modified
      Eichhorn-Lorenz (E-L) stages, which also gives budbreak, bloom and veraison dates each year.
+   - Field photos: each photo becomes a note dated when it was taken (EXIF), kept with the vineyard.
    - A labor log (cellarmate.vineyard_labor) with hours and cost per block and per acre.
    - A block board: one tile per block with its stage, safety window, last scouting and hours.
    Renders on Vine Blocks (CmFieldWork). The owner portal uses cmSafetyWindows and cmStageName.
@@ -118,6 +119,31 @@
       db().from('vineyard_observations').insert({ organization_id: site.organization_id, vineyard: site.name, block: F.block ? +F.block : null, observed_on: F.observed_on, kind: F.kind, el_stage: F.el_stage ? +F.el_stage : null, subject: F.subject || null, severity: F.kind === 'growth stage' ? null : F.severity, note: F.note || null, owner_visible: !!F.owner_visible, observed_by: me() })
         .then(function (r) { if (r.error) setErr(r.error.message); else { setErr(''); setF(Object.assign({}, F, { subject: '', note: '' })); load(); } });
     };
+    /* photos: the date each photo was taken (EXIF) becomes the observation date; the photo is kept
+       with the vineyard (paid plans) */
+    var addPhotos = function (ev) {
+      var files = Array.prototype.slice.call(ev.target.files || []); ev.target.value = ''; if (!files.length) return;
+      if (F.kind === 'growth stage' && !F.el_stage) { setErr('Pick the growth stage the photos show, then add them.'); return; }
+      setErr('Reading ' + files.length + ' photo(s)...');
+      (async function () {
+        if (typeof cmLib === 'function') { try { await cmLib('https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js'); } catch (x) { } }
+        var saved = 0, noDate = 0;
+        for (var i = 0; i < files.length; i++) {
+          var file = files[i], when = null;
+          try { if (window.exifr) { var ex = await window.exifr.parse(file, ['DateTimeOriginal', 'CreateDate']); var dt = ex && (ex.DateTimeOriginal || ex.CreateDate); if (dt) when = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10); } } catch (x) { }
+          if (!when) { noDate++; when = file.lastModified ? new Date(file.lastModified).toISOString().slice(0, 10) : F.observed_on; }
+          var ins = await db().from('vineyard_observations').insert({ organization_id: site.organization_id, vineyard: site.name, block: F.block ? +F.block : null, observed_on: when, kind: F.kind, el_stage: F.el_stage ? +F.el_stage : null, subject: F.subject || null, severity: F.kind === 'growth stage' ? null : F.severity, note: (F.note ? F.note + ' · ' : '') + 'photo ' + file.name, owner_visible: !!F.owner_visible, observed_by: me() }).select('id').single();
+          if (ins.error) throw new Error(ins.error.message);
+          if (window.cmFiles) {
+            var r = await window.cmFiles.readAny(file, null);
+            await window.cmFiles.saveOne(r, { category: 'vineyard', title: when.slice(0, 4) + ' · ' + (F.kind === 'growth stage' ? cmStageName(+F.el_stage) : (F.subject || F.kind)) + (F.block ? ' · block ' + F.block : ''), note: 'Field photo, observation ' + ins.data.id, taken_on: when, links: [{ link_type: 'vineyard', vintage: +when.slice(0, 4), ref: site.name }] }, site.organization_id);
+          }
+          saved++;
+        }
+        return { saved: saved, noDate: noDate };
+      })().then(function (r) { setErr(''); alert('Saved ' + r.saved + ' photo(s) as field notes' + (r.noDate ? '; ' + r.noDate + ' had no camera date, so the file date was used' : '') + '.'); load(); })
+        .catch(function (x) { setErr(x.message); load(); });
+    };
     var addLabor = function () {
       if (!L.task.trim() || !num(L.hours)) { setErr('Enter the job and the hours.'); return; }
       db().from('vineyard_labor').insert({ organization_id: site.organization_id, vineyard: site.name, worked_on: L.worked_on, blocks: L.blocks || null, task: L.task.trim(), people: num(L.people) || 1, hours: num(L.hours), rate: num(L.rate), entered_by: me() })
@@ -168,7 +194,8 @@
           F.kind !== 'growth stage' ? lab('v', 'Severity', cmE('select', { value: F.severity, onChange: function (ev) { setF(Object.assign({}, F, { severity: ev.target.value })); }, style: inp() }, ['none', 'low', 'moderate', 'high'].map(function (x) { return cmE('option', { key: x, value: x }, x); }))) : null,
           lab('n', 'Note', cmE('input', { value: F.note, onChange: function (ev) { setF(Object.assign({}, F, { note: ev.target.value })); }, style: inp() }), '2 1 180px'),
           cmE('label', { style: { fontSize: 11, color: C.textDim, display: 'flex', alignItems: 'center', gap: 4 } }, cmE('input', { type: 'checkbox', checked: F.owner_visible, onChange: function (ev) { setF(Object.assign({}, F, { owner_visible: ev.target.checked })); } }), 'Show to owner'),
-          cmE('button', { onClick: addObs, style: { background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontWeight: 700, cursor: 'pointer' } }, 'Add')),
+          cmE('button', { onClick: addObs, style: { background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontWeight: 700, cursor: 'pointer' } }, 'Add'),
+          cmE('label', { title: 'Each photo becomes a field note dated when it was taken', style: { background: C.card, color: C.accentLight, border: '1px solid ' + C.cardBorder, borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' } }, 'Add photos', cmE('input', { type: 'file', accept: 'image/*', multiple: true, onChange: addPhotos, style: { display: 'none' } }))),
         Object.keys(pheno).length ? cmE('div', { style: { fontSize: 12, marginBottom: 6 } }, Object.keys(pheno).sort().reverse().map(function (yy) {
           var r = pheno[yy], sea = P.seasons && P.seasons[yy];
           return cmE('div', { key: yy }, cmE('b', null, yy + ': '), MILESTONES.map(function (m) { var d = r[m[1]]; return d ? m[1] + ' ' + md(d) + (sea && sea.at(d) != null ? ' (' + Math.round(sea.at(d)) + ' heat units)' : '') : null; }).filter(Boolean).join(' · '));
