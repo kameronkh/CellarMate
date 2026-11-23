@@ -36,8 +36,11 @@ window.cmSmoke = async function(opts) {
   const mz = await Promise.all(['supplies','supply_lots','supply_uses','supply_counts','purchase_lines','fermenter_additions'].map(function(t) { return cmFetch(t); }));
   const mrows = cmMaterialRows({sup:mz[0], lots:mz[1], uses:mz[2], counts:mz[3], pl:mz[4], fa:mz[5]});
   ok('materials rows have no NaN', mrows.every(function(r) { return !isNaN(r.spend) && !isNaN(r.bought); }));
-  const plTotal = mz[4].reduce(function(t, p) { return t + Number(p.amount || 0); }, 0);
-  ok('invoice total is about 40,703', Math.abs(plTotal - 40703.38) < 1, plTotal.toFixed(2));
+  const plTotal = mz[4].filter(function(p) { return p.supplier === 'Crush2Cellar'; }).reduce(function(t, p) { return t + Number(p.amount || 0); }, 0);
+  ok('Crush2Cellar invoice total is about 40,703', Math.abs(plTotal - 40703.38) < 1, plTotal.toFixed(2));
+  const plAll = mz[4].reduce(function(t, p) { return t + Number(p.amount || 0); }, 0);
+  ok('all supplier invoices about 98,143 (gases, filtration, glass, barrels, grapes added)', Math.abs(plAll - 98143.04) < 1, plAll.toFixed(2));
+  ok('Industrial Source gas invoices about 15,393', Math.abs(mz[4].filter(function(p) { return p.supplier === 'Industrial Source'; }).reduce(function(t, p) { return t + Number(p.amount || 0); }, 0) - 15392.80) < 1);
   ok('BRG use matches log (427 g)', (mrows.filter(function(r) { return /BRG/.test(r.s.name); })[0] || {}).faG === 427);
   /* 1d. barrel map module */
   ok('module registry has Map', !!(window.CM_MODULES && CM_MODULES.map));
@@ -393,6 +396,23 @@ window.cmSmoke = async function(opts) {
   ok('library domains: vineyard and winery', cmVitDomain({category: 'Winemaking: fermentation'}) === 'Winery' && cmVitDomain({category: 'Diseases'}) === 'Vineyard');
   const yLib = await dbf.from('vit_library').select('slug,category'); const yReg2 = await dbf.from('regional_phenology').select('year,stage,approx');
   ok('library has winery entries and Oregon regional timing is stored', (yLib.data || []).filter(function(e) { return /^(Winemaking|Enology)/.test(e.category); }).length >= 15 && (yReg2.data || []).filter(function(r) { return !r.approx; }).length >= 12, ((yLib.data || []).length) + ' entries, ' + ((yReg2.data || []).length) + ' regional dates');
+  /* 1aa. cost sheet, assets, crop estimate and thinning */
+  ok('cost, asset and crop modules loaded', !!(window.CmCostSheet && window.CmAssets && window.CmCropEstimate && CM_MODULES.cost && CM_MODULES.assets && window.cmThinScenario));
+  ok('line vintage: lot name, grapes by harvest year, else August to July', cmLineVintage({lot_no: '24 Signature PN', doc_date: '2026-08-04'}) === 2024 && cmLineVintage({category: 'Grapes', doc_date: '2026-10-29'}) === 2026 && cmLineVintage({category: 'Argon', doc_date: '2026-03-17'}) === 2025 && cmLineVintage({vintage: 2023, doc_date: '2025-09-01'}) === 2023);
+  ok('cost groups', cmCostGroup('Dry ice') === 'Gases and dry ice' && cmCostGroup('Glass') === 'Packaging' && cmCostGroup('Filtration') === 'Filtration');
+  const aV = cmAssetValue({unit_cost: 1400, qty: 2, acquired_on: '2024-06-01', life_years: 4, salvage_each: 75}, '2026-06-01');
+  ok('barrel value straight line to salvage', Math.abs(aV.each - 738) < 2 && cmAssetValue({unit_cost: 3280, qty: 1, owned: false}).value === 0);
+  const cS = cmCostSheet([{category: 'Grapes', doc_date: '2025-10-01', amount: 3000}, {category: 'Barrels', doc_date: '2025-05-01', amount: 9999}, {category: 'Argon', doc_date: '2026-02-01', amount: 100}], [{kind: 'Barrel', unit_cost: 1475, qty: 2, acquired_on: '2025-06-12', life_years: 4, salvage_each: 75}], [{vintage: 2025, owner: 'Tystrya', tons: 2}], 2025, 150);
+  ok('cost sheet: barrels as depreciation, per ton and per case', cS.total === 3800 && cS.oak.total === 700 && cS.perTon === 1900 && Math.round(cS.cases) === 126, JSON.stringify({t: cS.total, o: cS.oak.total}));
+  const cc1 = {vines: 490, acres: 0.34, shoots_per_vine: 13.3, clusters_per_vine: 18.9, grams_per_cluster: 37, grams_with_wings: 38, lag_mid: 1.7};
+  ok('crop tons match the Century 2026 sheet (block 1, 1.7 factor, 0.642 t)', Math.abs(cmCropTons(490, 18.9, 37, 1.7) - 0.642) < 0.002);
+  const t1 = cmThinScenario(cc1, {scenario: 'target', target: 1.5}), o1 = cmThinScenario(cc1, {scenario: 'one'}), w1 = cmThinScenario(cc1, {scenario: 'wings'});
+  ok('thinning scenarios: target t/a hit, one per shoot keeps shoots, wings trims weight', Math.abs(t1.tpa - 1.5) < 0.01 && Math.abs(o1.clusters - 13.3) < 0.01 && w1.tons < w1.before && o1.removed > 0.25);
+  ok('ripening check tightens in a cool season', cmRipenCheck(o1, 13.3, 0.2, 0.9).need === 1 && cmRipenCheck(o1, 13.3, 0.2, 1).need === 0.8 && cmRipenCheck({clusters: 30, grams: 120, lag: 2}, 10, 0.2, 1).status === 'risk');
+  const cq = await dbf.from('crop_counts').select('id,vintage');
+  ok('crop counts loaded for 2022 to 2026', !cq.error && (cq.data || []).length >= 41 && (cq.data || []).some(function(c) { return c.vintage === 2026; }), (cq.error || {}).message || (cq.data || []).length);
+  const wa = await dbf.from('winery_assets').select('id,kind');
+  ok('winery assets readable', !wa.error && (wa.data || []).filter(function(a) { return a.kind === 'Barrel'; }).length >= 5, (wa.error || {}).message || '');
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
@@ -427,6 +447,10 @@ window.cmSmoke = async function(opts) {
   tb = tabBtn('Inventory'); if (tb) { tb.click(); for (let i = 0; i < 15 && !/Wine inventory/.test(document.body.innerText); i++) await wait(1000); }
   for (let i = 0; i < 10 && /Loading wine inventory/.test(document.body.innerText); i++) await wait(1000);
   ok('Inventory tab with CRM stock', /Wine inventory/.test(document.body.innerText) && /bottles on hand/.test(document.body.innerText) && /Record a bottling/.test(document.body.innerText) && /2024 Willamette Valley Chardonnay/.test(document.body.innerText) && !/CRM error: /.test(document.body.innerText) && !bad(), bad());
+  tb = tabBtn('Costs'); if (tb) { tb.click(); for (let i = 0; i < 20 && !/Winemaking cost sheet/.test(document.body.innerText); i++) await wait(1000); }
+  ok('Costs tab: cost sheet with gases, filtration and oak', /Winemaking cost sheet/.test(document.body.innerText) && /Gases and dry ice/.test(document.body.innerText) && /Vintages side by side/.test(document.body.innerText) && /Per case/.test(document.body.innerText) && !bad(), bad());
+  tb = tabBtn('Assets'); if (tb) { tb.click(); for (let i = 0; i < 20 && !/Winery assets/.test(document.body.innerText); i++) await wait(1000); }
+  ok('Assets tab: barrels, gas equipment and the cellar check', /Winery assets/.test(document.body.innerText) && /Gillet Bourgogne Export/.test(document.body.innerText) && /Check against the cellar/.test(document.body.innerText) && !bad(), bad());
   /* 3b. vineyard side: every section of Vine Blocks */
   nav('Cellar'); await wait(1200);
   const vb = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Vine Blocks'; })[0];
@@ -447,6 +471,9 @@ window.cmSmoke = async function(opts) {
   ok('Vine Blocks, watch list, pruning and Oregon timing', /Things to watch in \d{4}/.test(T()) && /Pruning/.test(T()) && /Oregon public timing reports/.test(T()) && /Winery ready/.test(T()) && !bad(), bad());
   ok('Vine Blocks, forecast year against actual years', /Every year at this vineyard/.test(T()) && /Forecast year \d{4}/.test(T()) && /Usual miss/.test(T()) && /Recommended work for/.test(T()) && /Protect bloom/.test(T()) && !bad(), bad());
   ok('Vine Blocks, season and budget', /The typical year/.test(T()) && /Season markers by year/.test(T()) && /budget: preliminary, final and actual/.test(T()) && !bad(), bad());
+  await vtab('Crop estimate', /Crop estimate and thinning/, 20);
+  for (let i = 0; i < 15 && /Loading crop counts/.test(T()); i++) await wait(1000);
+  ok('Vine Blocks, crop estimate and thinning scenarios', /Crop estimate and thinning/.test(T()) && /One cluster per shoot/.test(T()) && /Estimate against pick, every year/.test(T()) && /Realised factor/.test(T()) && /By row/.test(T()) && !bad(), bad());
   await vtab('Equipment', /Maintenance log/);
   ok('Vine Blocks, equipment', /Airblast sprayer/.test(T()) && /Maintenance log/.test(T()) && /sprayer inspection not on file/.test(T()) && !bad(), bad());
   await vtab('Paperwork', /Download pesticide use report/);
