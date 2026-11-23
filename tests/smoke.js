@@ -442,6 +442,15 @@ window.cmSmoke = async function(opts) {
   ok('2026 malic results loaded', !ml8.error && (ml8.data || []).length >= 20, (ml8.data || []).length);
   const tn8 = await dbf.from('tasting_notes').select('id').eq('kind', 'Cellar rule');
   ok('SO2 dose rules from the notebook saved', !tn8.error && (tn8.data || []).length >= 3, (tn8.data || []).length);
+  /* 1ae. round 9: every photo record keeps a link to its notebook page */
+  const pl9 = await dbf.from('photo_review').select('title,link').limit(5);
+  ok('photo review rows carry a Drive page link', !pl9.error && (pl9.data || []).length > 0 && (pl9.data || []).every(function(p) { return /^https:\/\/drive\.google\.com\/file\/d\/.+\/view$/.test(p.link || ''); }), (pl9.error || {}).message || '');
+  const sl9 = await dbf.from('so2_log').select('id,photo_links').eq('date', '2026-05-28').not('photo_links', 'is', null);
+  ok('5/28/2026 SO2 rows link back to their pages', !sl9.error && (sl9.data || []).length >= 140, (sl9.data || []).length);
+  const bl9 = await dbf.from('berry_samples').select('id,photo_links').eq('sampled_on', '2026-09-19');
+  ok('9/19/2026 berry samples loaded with page links', !bl9.error && (bl9.data || []).length === 6 && (bl9.data || []).every(function(b) { return (b.photo_links || []).length === 1; }), (bl9.data || []).length);
+  const fr9 = await dbf.from('fermenters').select('fermenter,so2_at_crush_ppm').eq('vintage', 2026).eq('fermenter', 'F14');
+  ok('crush SO2 from the 9/18/2026 page on F14', !fr9.error && (fr9.data || []).length === 1 && Number(fr9.data[0].so2_at_crush_ppm) === 35);
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
