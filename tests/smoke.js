@@ -393,12 +393,40 @@ window.cmSmoke = async function(opts) {
   ok('library domains: vineyard and winery', cmVitDomain({category: 'Winemaking: fermentation'}) === 'Winery' && cmVitDomain({category: 'Diseases'}) === 'Vineyard');
   const yLib = await dbf.from('vit_library').select('slug,category'); const yReg2 = await dbf.from('regional_phenology').select('year,stage,approx');
   ok('library has winery entries and Oregon regional timing is stored', (yLib.data || []).filter(function(e) { return /^(Winemaking|Enology)/.test(e.category); }).length >= 15 && (yReg2.data || []).filter(function(r) { return !r.approx; }).length >= 12, ((yLib.data || []).length) + ' entries, ' + ((yReg2.data || []).length) + ' regional dates');
+  /* 1z. winery troubleshooter, AI context and wine inventory */
+  ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
+  ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
+  const zA = cmDiagnose(['fizz', 'haze'], {white: true, malic: 0.8, rs: 0.5, filtered: 'no', monthsInBottle: 5});
+  ok('fizz and haze with malic left ranks malolactic in the bottle first, low sugar counts against yeast', zA[0].key === 'mlf_bottle' && zA.filter(function(c) { return c.key === 'yeast_referment'; })[0].against.length === 1, zA.map(function(c) { return c.key + ':' + c.score; }).join(','));
+  const zB = cmDiagnose(['reduced'], {white: true, yan: 110, closure: 'screw cap'});
+  ok('rotten egg with low YAN and screw cap ranks reduction first', zB[0].key === 'reduction' && zB[0].evidence.length === 2, zB.map(function(c) { return c.key + ':' + c.score; }).join(','));
+  ok('barnyard in a high-pH red ranks Brett', cmDiagnose(['barnyard'], {white: false, ph: 3.8, free: 20})[0].key === 'brett' && cmDiagnose([], {}).length === 0);
+  const zCtx = cmWineContext({label: '2024 Chardonnay', vintage: 2024, stage: 'bottled'}, {white: true, ph: 3.4, free: 30}, ['fizz'], zA.slice(0, 2), [{title: 'Entry', summary: 'S', key_points: ['k'], sources: [{org: 'O', title: 't', url: 'https://x'}]}], [{wine: 'w', symptoms: ['fizz'], outcome: 'malolactic in bottle'}]);
+  ok('AI context carries numbers, causes, library sources and past cases', /Molecular SO2 about 0\.75/.test(zCtx) && /Malolactic finishing in the bottle/.test(zCtx) && /Source: O, t, https:\/\/x/.test(zCtx) && /Past case at this winery/.test(zCtx));
+  const zR = cmInvRows([{id: 1, sku: 'A', cases_bottled: 10, bottles_per_case: 12, crm_product_id: 'p1', cogs_per_bottle: 10}, {id: 2, sku: 'B'}], [{id: 'p1', stock: 60, sold_qty_90d: 30, sold_qty_all: 60, low_alert: 12, cogs: 9}, {id: 'p2', name: 'C', stock: 5}]);
+  ok('inventory rows: months of supply, value, depletion, unlinked CRM products', zR.rows[0].months === 6 && zR.rows[0].value === 600 && zR.rows[0].depleted === 0.5 && zR.unlinked.length === 1);
+  const zP = await dbf.rpc('crm_products', {p_org: vy0.data.organization_id});
+  ok('CRM products reachable through CellarMate', !zP.error && (zP.data || []).length >= 10, (zP.error || {}).message || (zP.data || []).length);
+  const zS = await dbf.from('bottled_skus').select('id,crm_product_id').not('crm_product_id', 'is', null);
+  ok('bottled wines linked to CRM products', (zS.data || []).length >= 10, (zS.data || []).length);
+  const zI = await dbf.from('wine_issues').select('id').limit(1);
+  ok('wine investigations table readable', !zI.error, (zI.error || {}).message || '');
   const sel = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
   if (click('Reports', 'button')) { await wait(1500); }
   const sel2 = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
   if (sel2) { const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
     for (const rep of ['malic','so2','tart','top','chard','ml','chsul','eat']) { set.call(sel2, rep); sel2.dispatchEvent(new Event('change', {bubbles:true})); await wait(1300); ok('report ' + rep, document.querySelectorAll('tbody tr').length > 0 && !bad(), bad()); } }
 
+  /* 3c. winery side: troubleshooter and inventory tabs */
+  const tabBtn = function(t) { return Array.from(document.querySelectorAll('button,div')).filter(function(e) { return e.children.length === 0 && e.innerText && e.innerText.trim() === t; })[0]; };
+  let tb = tabBtn('Troubleshoot'); if (tb) { tb.click(); for (let i = 0; i < 15 && !/Troubleshoot a wine/.test(document.body.innerText); i++) await wait(1000); }
+  ok('Troubleshoot tab', /Troubleshoot a wine/.test(document.body.innerText) && /Past investigations/.test(document.body.innerText) && !bad(), bad());
+  const tsel = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(o) { return /Eola-Amity Chardonnay/.test(o.text); }); })[0];
+  if (tsel) { const o = Array.from(tsel.options).filter(function(o) { return /2024 Eola-Amity Chardonnay/.test(o.text); })[0]; Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(tsel, o.value); tsel.dispatchEvent(new Event('change', {bubbles: true})); await wait(500); const fz = tabBtn('Fizz or spritz in a still wine'); if (fz) fz.click(); await wait(500); }
+  ok('troubleshooter ranks causes for the 2024 Chardonnay and shows what to expect', /Likely causes/.test(document.body.innerText) && /in the bottle/.test(document.body.innerText) && /What this wine should taste like/.test(document.body.innerText) && /Next steps for this wine/.test(document.body.innerText) && !bad(), bad());
+  tb = tabBtn('Inventory'); if (tb) { tb.click(); for (let i = 0; i < 15 && !/Wine inventory/.test(document.body.innerText); i++) await wait(1000); }
+  for (let i = 0; i < 10 && /Loading wine inventory/.test(document.body.innerText); i++) await wait(1000);
+  ok('Inventory tab with CRM stock', /Wine inventory/.test(document.body.innerText) && /bottles on hand/.test(document.body.innerText) && /Record a bottling/.test(document.body.innerText) && /2024 Willamette Valley Chardonnay/.test(document.body.innerText) && !/CRM error: /.test(document.body.innerText) && !bad(), bad());
   /* 3b. vineyard side: every section of Vine Blocks */
   nav('Cellar'); await wait(1200);
   const vb = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Vine Blocks'; })[0];

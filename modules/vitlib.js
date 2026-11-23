@@ -132,6 +132,8 @@
     var s7 = React.useState(false), flip = s7[0], setFlip = s7[1];
     var s8 = React.useState(''), note = s8[0], setNote = s8[1];
     var s9 = React.useState(''), err = s9[0], setErr = s9[1];
+    var s10 = React.useState(null), aiAns = s10[0], setAiAns = s10[1];
+    var s11 = React.useState(false), aiBusy = s11[0], setAiBusy = s11[1];
     React.useEffect(function () {
       supa.schema('cellarmate').from('vit_library').select('*').order('category').order('title')
         .then(function (r) { if (r.error) { setErr(r.error.message); setLib([]); } else setLib(r.data || []); });
@@ -198,7 +200,13 @@
           return cmE('div', { key: x.e.slug, onClick: function () { setMode('read'); setQ(''); setF({}); setOpen(x.e.slug); }, style: { cursor: 'pointer', padding: '4px 0', borderTop: '1px solid ' + C.cardBorder, fontSize: 13 } },
             cmE('b', null, x.e.title), cmE('span', { style: small }, '  ' + x.why.join(', ')));
         }) : cmE('div', { style: small }, 'Nothing stands out for this date and weather.'),
-        cmE('div', { style: { marginTop: 6 } }, cmBtn('Copy for an AI assistant', function () { copy(now.map(function (x) { return x.e; })); }, false, false)),
+        cmE('div', { style: { marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' } }, cmBtn('Copy for an AI assistant', function () { copy(now.map(function (x) { return x.e; })); }, false, false),
+          window.cmAskLibrary ? cmBtn(aiBusy ? 'Asking...' : (q ? 'Ask AI: ' + q.slice(0, 40) : 'Ask AI what to watch now'), function () {
+            var ents = (q ? list.slice(0, 8) : now.map(function (x) { return x.e; })); setAiBusy(true); setAiAns(null);
+            window.cmAskLibrary((typeof CM_ME !== 'undefined' && CM_ME.org_id) || '762fc809-0341-4ee2-834f-16e707181ea7', q || 'What may be happening in the vineyard and winery right now, and what should we check this week?', cmVitPrompt(ents, { site: P.site, sig: sig }, q))
+              .then(function (r) { setAiBusy(false); setAiAns(r.answer || r.message || 'No answer.'); });
+          }, true, aiBusy) : null),
+        aiAns ? cmE('div', { style: { marginTop: 6, fontSize: 13, whiteSpace: 'pre-wrap', borderTop: '1px solid ' + C.cardBorder, paddingTop: 6 } }, aiAns) : null,
         note ? cmE('div', { style: Object.assign({}, small, { marginTop: 4, color: C.green || C.text }) }, note) : null,
         window.__cmVitPrompt && note.indexOf('Could not') === 0 ? cmE('textarea', { readOnly: true, value: window.__cmVitPrompt, style: { width: '100%', height: 120, fontSize: 11 } }) : null),
       cmE('div', { style: Object.assign({}, C0, { display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }) },
