@@ -264,6 +264,25 @@ window.cmSmoke = async function(opts) {
   ok('2025 LIVE pesticide use report built from the spray records', pur25.rows.length >= 15 && pur25.rows.every(function(r) { return r['Product Trade Name'] && r['Date Applied']; }) && pur25.issues.unmatched.length === 0, pur25.rows.length + ' rows; unmatched ' + pur25.issues.unmatched.join(','));
   const irr25 = cmLiveIrrigation(cp[2], 2025, cp[3], 'Tystrya Estate');
   ok('2025 LIVE irrigation report has the 26 entries', irr25.length === 26 && irr25[0]['PLANTS/ACRE'] === 1452, irr25.length);
+  /* 1u. field work: safety windows, growth stages, labor */
+  ok('field work module loaded', !!(window.CmFieldWork && window.cmSafetyWindows && window.cmPhenology && window.cmLaborByBlock && window.cmStageName));
+  const blk = [{block: 1, acres: 1}, {block: 2, acres: 3}];
+  const sw = cmSafetyWindows([{date: '2030-06-01', blocks: 'All', products_rate_per_acre: 'Microthiol 5 lbs/acre; Regalia 64 oz/acre'}, {date: '2030-06-01', blocks: '2', products_rate_per_acre: 'Kaligreen 2.5 lbs', skipped: true}],
+    [{name: 'Microthiol', rei_hours: 24, phi_days: 21}, {name: 'Regalia', rei_hours: 4, phi_days: 0}, {name: 'Kaligreen', rei_hours: 4, phi_days: 1}], blk, '2030-06-02T08:00:00');
+  ok('re-entry and pre-harvest windows from the spray products', sw.active.length === 2 && sw.blocks[1].reiUntil && sw.blocks[1].reiUntil.getDate() === 2 && sw.blocks[1].reiUntil.getHours() === 18 && sw.blocks[2].phiUntil === '2030-06-22', JSON.stringify(sw.active.map(function(o) { return [o.block, String(o.reiUntil), o.phiUntil]; })));
+  const sw2 = cmSafetyWindows([{date: '2030-06-01', blocks: 'All', products_rate_per_acre: 'Microthiol 5 lbs/acre'}], [{name: 'Microthiol', rei_hours: 24, phi_days: 21}], blk, '2030-06-25T08:00:00');
+  ok('windows close once the time has passed', sw2.active.length === 0);
+  const ph = cmPhenology([{kind: 'growth stage', el_stage: 4, observed_on: '2030-04-10'}, {kind: 'growth stage', el_stage: 5, observed_on: '2030-04-05'}, {kind: 'growth stage', el_stage: 23, observed_on: '2030-06-12'}, {kind: 'scouting', observed_on: '2030-06-01'}, {kind: 'growth stage', el_stage: 35, observed_on: '2030-08-09'}]);
+  ok('budbreak, bloom and veraison dates from the growth stage log', ph['2030'].Budbreak === '2030-04-05' && ph['2030'].Bloom === '2030-06-12' && ph['2030'].Veraison === '2030-08-09', JSON.stringify(ph));
+  const lb = cmLaborByBlock([{worked_on: '2030-05-01', blocks: 'all', task: 'thin', people: 2, hours: 4, rate: 25}, {worked_on: '2030-05-02', blocks: '2', task: 'mow', hours: 2}, {worked_on: '2029-05-02', blocks: '2', task: 'old', hours: 99}], blk, 2030, 30);
+  ok('labor hours and cost shared by acres', Math.abs(lb.rows[0].hours - 2) < 1e-9 && Math.abs(lb.rows[1].hours - 8) < 1e-9 && Math.abs(lb.total.cost - (8 * 25 + 2 * 30)) < 1e-9 && Math.abs(lb.rows[0].perAcre - 50) < 1e-9, JSON.stringify(lb.rows));
+  ok('growth stage names', cmStageName(23) === 'E-L 23 · Full bloom (half the caps off)' && cmStageName(36) === 'E-L 36 · Berries softening', cmStageName(23));
+  const dbf = supa.schema('cellarmate'); const vy0 = await dbf.from('vineyards').select('organization_id').eq('name', 'Tystrya Estate').single();
+  const oIns = await dbf.from('vineyard_observations').insert({organization_id: vy0.data.organization_id, vineyard: 'Tystrya Estate', block: 4, kind: 'scouting', subject: 'SMOKE TEST mildew', severity: 'low'}).select('id').single();
+  const lIns = await dbf.from('vineyard_labor').insert({organization_id: vy0.data.organization_id, vineyard: 'Tystrya Estate', blocks: '4', task: 'SMOKE TEST', hours: 1}).select('id').single();
+  const oDel = oIns.data ? await dbf.from('vineyard_observations').delete().eq('id', oIns.data.id).select('id') : {};
+  const lDel = lIns.data ? await dbf.from('vineyard_labor').delete().eq('id', lIns.data.id).select('id') : {};
+  ok('scouting note and labor entry save and delete', !oIns.error && !lIns.error && oDel.data.length === 1 && lDel.data.length === 1, (oIns.error || lIns.error || {}).message || '');
   /* 2. data */
   const rows = await cmStatusRows();
   const r26 = rows.filter(function(r) { return r.v === 2026; }); const r25 = rows.filter(function(r) { return r.v === 2025; });
@@ -305,8 +324,9 @@ window.cmSmoke = async function(opts) {
   for (let i = 0; i < 15 && !/Schedule and owner access/.test(document.body.innerText); i++) await wait(1000);
   const pvb = Array.from(document.querySelectorAll('button')).filter(function(b) { return b.innerText.trim() === 'Preview what the owner sees'; })[0];
   if (pvb) { pvb.click(); for (let i = 0; i < 20 && !/Records and files \(/.test(document.body.innerText); i++) await wait(1000); }
-  ok('Vine Blocks shows the schedule, owner access and the owner preview', /Schedule and owner access/.test(document.body.innerText) && /vineyard owner view/i.test(document.body.innerText) && /Done lately/.test(document.body.innerText) && /Records and files \(/.test(document.body.innerText) && !bad(), bad());
+  ok('Vine Blocks shows the schedule, owner access and the owner preview', /Schedule and owner access/.test(document.body.innerText) && /vineyard owner view/i.test(document.body.innerText) && /Done lately/.test(document.body.innerText) && /From the field/.test(document.body.innerText) && /Records and files \(/.test(document.body.innerText) && !bad(), bad());
   if (pvb) { const cl = Array.from(document.querySelectorAll('button')).filter(function(b) { return b.innerText.trim() === 'Close preview'; })[0]; if (cl) cl.click(); await wait(500); }
+  ok('Vine Blocks shows the field work board', /Field work/.test(document.body.innerText) && /Block board/.test(document.body.innerText) && /Re-entry and pre-harvest windows/.test(document.body.innerText) && /Labor and cost per block/.test(document.body.innerText) && !bad(), bad());
   ok('Vine Blocks shows the certification paperwork', /Certification paperwork/.test(document.body.innerText) && /Download pesticide use report/.test(document.body.innerText) && !bad(), bad());
   ok('Vine Blocks shows mildew pressure, ripeness samples and harvest watch', /Powdery mildew pressure \(Gubler-Thomas index\)/.test(document.body.innerText) && /Ripeness samples/.test(document.body.innerText) && /Harvest watch: Estate/.test(document.body.innerText) && /index started/.test(document.body.innerText) && !bad(), bad() || document.body.innerText.slice(document.body.innerText.indexOf('Powdery'), document.body.innerText.indexOf('Powdery') + 200));
   /* 4. layout at this width */

@@ -8,7 +8,7 @@
    3. Crop estimates (harvest_estimates): estimate against target tons per acre, against history,
       against the actual harvest, and a projected ripe date against the target pick window.
    4. Spray program against rain (wash-off) and heat units between sprays (vineyard_sprays).
-   Mildew pressure (mildew.js), ripeness samples (ripeness.js), the schedule and owner access
+   Mildew pressure (mildew.js), ripeness samples (ripeness.js), field work (fieldwork.js), the schedule and owner access
    (owner.js), certification paperwork (certs.js) and vineyard records (vinerecords.js) render inside this screen.
    Pure helpers are on window for the smoke tests: cmGddSeason, cmHarvestHistory, cmProjectRipe,
    cmCropCheck, cmSprayCheck. */
@@ -347,6 +347,9 @@
             r.chk.flags.map(function (f, i) { return cmE('div', { key: i, style: { fontSize: 12, color: flagC[f.level] } }, f.text); }),
             !r.chk.flags.length ? cmE('div', { style: small }, 'Add a target t/ac or acres to check this estimate.') : null);
         }) : cmE('div', { style: Object.assign({}, small, { marginTop: 6 }) }, 'No estimates for ' + vy + ' yet.')),
+
+      /* block board, safety windows, scouting, growth stages and labor (fieldwork.js) */
+      site && window.CmFieldWork ? cmE(window.CmFieldWork, { key: 'field' + site.id, site: site, sprays: D.sprays, seasons: seasons }) : null,
 
       /* LIVE and organic paperwork (certs.js) */
       site && window.CmCertPapers ? cmE(window.CmCertPapers, { key: 'cert' + site.id, site: site }) : null,

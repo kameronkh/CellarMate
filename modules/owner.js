@@ -6,7 +6,7 @@
    - CmVineyardTeam: on Vine Blocks, the schedule (vineyard_tasks), people with access
      (vineyard_members) and "Preview what the owner sees".
    - CmOwnerPortal: the whole screen for a login that has no winery but owns or buys from a
-     vineyard; falls back to the usual "No access" screen when there is none.
+     vineyard (safety windows and field notes come from fieldwork.js); falls back to the usual "No access" screen when there is none.
    Pure helpers on window for the smoke tests: cmScheduleSplit, cmOwnerFeed. */
 (function () {
   'use strict';
@@ -128,11 +128,14 @@
       var by = function (t) { return db().from(t).select('*').eq('organization_id', V.organization_id).eq('vineyard', V.name); };
       Promise.all([by('vineyard_tasks').eq('owner_visible', true), by('vineyard_sprays'), by('vineyard_activities'), by('harvest_estimates'), by('estate_harvests'), by('vineyard_blocks'),
         db().from('weather_daily').select('date,tmax_f,tmin_f,precip_in,gt_hours,hot_hours').eq('vineyard_id', V.id).gte('date', (new Date().getFullYear() - 1) + '-01-01').order('date').limit(1000),
-        window.cmFiles ? window.cmFiles.forRef('vineyard', null, V.name) : Promise.resolve([])])
+        window.cmFiles ? window.cmFiles.forRef('vineyard', null, V.name) : Promise.resolve([]),
+        by('vineyard_observations').eq('owner_visible', true).order('observed_on', { ascending: false }).limit(40),
+        db().from('spray_products').select('name,rei_hours,phi_days').eq('organization_id', V.organization_id)])
         .then(function (a) {
           if (!live) return; var bad = a.slice(0, 7).filter(function (r) { return r.error; })[0]; if (bad) setErr(bad.error.message);
           setD({ tasks: a[0].data || [], sprays: a[1].data || [], acts: a[2].data || [], est: a[3].data || [], harv: a[4].data || [], blocks: a[5].data || [],
-            days: (a[6].data || []).map(function (d) { return { date: d.date, tmax: Number(d.tmax_f), tmin: Number(d.tmin_f), p: Number(d.precip_in) || 0, gt: d.gt_hours, hot: d.hot_hours }; }), files: a[7] || [] });
+            days: (a[6].data || []).map(function (d) { return { date: d.date, tmax: Number(d.tmax_f), tmin: Number(d.tmin_f), p: Number(d.precip_in) || 0, gt: d.gt_hours, hot: d.hot_hours }; }), files: a[7] || [],
+            obs: (a[8] && a[8].data) || [], prods: (a[9] && a[9].data) || [] });
         }).catch(function (x) { if (live) setErr(x.message); });
       return function () { live = false; };
     }, [V.id]);
@@ -150,8 +153,18 @@
     var fy = Object.keys(byYear).sort(function (a, b) { return a === 'Reference' ? -1 : b === 'Reference' ? 1 : b - a; });
     var openFile = function (f) { supa.storage.from('cellar-files').createSignedUrl(f.path, 600).then(function (r) { if (r.data) window.open(r.data.signedUrl, '_blank'); else setErr('Could not open ' + f.filename); }); };
     var stat = function (label, value) { return cmE('div', { key: label, style: { minWidth: 90 } }, cmE('div', { style: { fontSize: 18, fontWeight: 700 } }, value), cmE('div', { style: small() }, label)); };
+    var safe = window.cmSafetyWindows ? window.cmSafetyWindows(D.sprays, D.prods, D.blocks) : { active: [] };
+    var stage = D.obs.filter(function (o) { return o.kind === 'growth stage' && o.el_stage != null; })[0];
+    var notes = D.obs.filter(function (o) { return o.kind !== 'growth stage'; }).slice(0, 8);
     return cmE('div', null,
       err ? cmE('div', { style: { color: C.red, fontSize: 12, marginBottom: 6 } }, err) : null,
+      safe.active.length ? cmE('div', { style: Object.assign(card(), { border: '1px solid ' + C.red }) },
+        cmE('div', { style: { fontWeight: 700, color: C.red, marginBottom: 4 } }, 'Before you walk the vineyard'),
+        safe.active.map(function (o) { return cmE('div', { key: o.block, style: { fontSize: 12 } }, 'Block ' + o.block + ': ' + [o.reiUntil ? 'keep out until ' + (o.reiUntil.getMonth() + 1) + '/' + o.reiUntil.getDate() + ' ' + o.reiUntil.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null, o.phiUntil ? 'no harvest before ' + md(o.phiUntil) : null].filter(Boolean).join(' · ')); })) : null,
+      cmE('div', { style: card() },
+        cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'From the field'),
+        stage ? cmE('div', { style: { fontSize: 13, marginBottom: 4 } }, 'Growth stage: ', cmE('b', null, window.cmStageName ? window.cmStageName(stage.el_stage) : 'E-L ' + stage.el_stage), ' (' + md(stage.observed_on) + (stage.block ? ', block ' + stage.block : '') + ')') : null,
+        notes.length ? notes.map(function (o) { return row('o' + o.id, md(o.observed_on), o.block ? 'Block ' + o.block : 'Vineyard', (o.subject || o.kind) + (o.severity ? ' (' + o.severity + ')' : '') + (o.note ? ' · ' + o.note : '')); }) : (stage ? null : cmE('div', { style: small() }, 'No field notes yet.'))),
       cmE('div', { style: card() },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Coming up'),
         S.overdue.concat(S.soon).length ? S.overdue.concat(S.soon).map(function (x) { return row('s' + x.id, md(x.planned_on), kindName(x.kind), x.title + (x.blocks ? ' · blocks ' + x.blocks : ''), x.planned_on && x.planned_on < t ? C.orange : null); }) : cmE('div', { style: small() }, 'Nothing planned for the next two weeks.'),
