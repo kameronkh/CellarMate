@@ -86,9 +86,12 @@
     return low([e.title, e.category, e.summary, e.look_for, e.what_to_do, arr(e.key_points).join(' '), arr(e.varieties).join(' '), arr(e.orgs).join(' '),
       arr(e.examples).map(function (x) { return x.scenario + ' ' + x.may_be_happening + ' ' + x.check; }).join(' ')].join(' '));
   }
+  /* vineyard (viticulture) or winery (oenology) entry */
+  function cmVitDomain(e) { return /^(Winemaking|Enology)/.test(e.category || '') ? 'Winery' : 'Vineyard'; }
   function cmVitSearch(entries, q, f) {
     f = f || {}; var words = low(q).split(/\s+/).filter(Boolean);
     return arr(entries).filter(function (e) {
+      if (f.domain && cmVitDomain(e) !== f.domain) return false;
       if (f.category && e.category !== f.category) return false;
       if (f.org && arr(e.orgs).indexOf(f.org) < 0) return false;
       if (f.variety && arr(e.varieties).length && arr(e.varieties).indexOf(f.variety) < 0) return false;
@@ -200,6 +203,7 @@
         window.__cmVitPrompt && note.indexOf('Could not') === 0 ? cmE('textarea', { readOnly: true, value: window.__cmVitPrompt, style: { width: '100%', height: 120, fontSize: 11 } }) : null),
       cmE('div', { style: Object.assign({}, C0, { display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }) },
         cmE('input', { placeholder: 'Search the library (for example: botrytis bloom, frost, YAN)', value: q, onChange: function (ev) { setQ(ev.target.value); setCard(0); }, style: { flex: '1 1 220px', background: C.input || C.card, color: C.text, border: '1px solid ' + C.cardBorder, borderRadius: 6, padding: '5px 8px', fontSize: 13 } }),
+        sel('domain', 'Vineyard and winery', ['Vineyard', 'Winery']),
         sel('category', 'All topics', uniq(function (e) { return [e.category]; })),
         sel('org', 'All sources', uniq(function (e) { return e.orgs; })),
         sel('variety', 'All varieties', uniq(function (e) { return e.varieties; })),
@@ -220,6 +224,7 @@
   window.cmVitSignals = cmVitSignals;
   window.cmVitMatch = cmVitMatch;
   window.cmVitSearch = cmVitSearch;
+  window.cmVitDomain = cmVitDomain;
   window.cmVitPrompt = cmVitPrompt;
   window.CmVitLibrary = CmVitLibrary;
 })();

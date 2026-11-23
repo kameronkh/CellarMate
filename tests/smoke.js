@@ -376,6 +376,23 @@ window.cmSmoke = async function(opts) {
   ok('manager for a month', cmManagerFor(oHist, 2026, 5) === 'Results Partners' && cmManagerFor(oHist, 2026, 6) === 'Century Vineyards' && cmManagerFor(oHist, 2025, 9) === 'Results Partners');
   const oBud = cmBudgetSummary([{year: 2026, version: 'final', category: 'A', item: 'Prune', month: 1, amount: 100, manager: 'Results Partners'}, {year: 2026, version: 'final', category: 'B', item: 'Prune', month: 1, amount: 90, manager: 'Century Vineyards'}, {year: 2026, version: 'final', category: 'A', item: 'Harvest', month: 9, amount: 500, manager: 'Results Partners'}, {year: 2026, version: 'final', category: 'B', item: 'Harvest', month: 9, amount: 400, manager: 'Century Vineyards'}], 2026, oHist);
   ok('budget split by manager: Results Partners months then Century months', oBud.total.final === 500, JSON.stringify(oBud.total));
+  /* 1y. budbreak (base 41°F from Feb 1), Oregon regional calibration, pruning, watch list, winery library */
+  const yP50 = {}, yP41 = {}; [2030, 2031, 2032].forEach(function(y) { yP50[y] = cmGddPath(oDays, y); yP41[y] = cmGddPath(oDays, y, 41, '02-01'); });
+  ok('budbreak heat path from February 1 at base 41°F', yP41[2031].complete && yP41[2031].by['2031-04-15'] > yP50[2031].by['2031-04-15'], Math.round(yP41[2031].by['2031-04-15']));
+  const yReg = [{year: 2030, stage: 'budbreak', date: '2030-04-12', approx: false}, {year: 2031, stage: 'budbreak', date: '2031-04-12', approx: false}, {year: 2031, stage: 'bloom', date: '2031-06-01', approx: true}];
+  const yCal = cmCalibrate(oSt, {a50: yP50, a41: yP41}, null, yReg);
+  ok('budbreak calibrated from Oregon regional dates; approximate dates ignored', yCal.budbreak && yCal.budbreak.nReg === 2 && yCal.bloom && !yCal.bloom.nReg, JSON.stringify({bb: yCal.budbreak && yCal.budbreak.nReg, bl: yCal.bloom && yCal.bloom.from}));
+  const yN41 = cmNormalGdd(oDays, null, 41); const yBB = cmProject(2033, yCal, null, function(d) { return yN41[d.slice(5)] || 0; }, 'a41').dates.budbreak;
+  ok('budbreak projected in April', /^2033-04/.test(yBB || ''), yBB);
+  const yPr = cmPrunePlan('2033-04-12', 216, 6);
+  ok('pruning plan: finish 3 weeks before budbreak, crew days from hours', yPr.finish === '2033-03-22' && yPr.workDays === 5, JSON.stringify(yPr));
+  const yPl = cmOutlookPlan({budbreak: '2033-04-12', bloom: '2033-06-12', veraison: '2033-08-14', firstPick: '2033-09-20', lastPick: '2033-10-03'}, {pruneHours: 216});
+  ok('plan includes pruning, frost, winery prep, YAN and malolactic', yPl.some(function(p) { return /^Pruning \(about 216 hours/.test(p.name); }) && yPl.some(function(p) { return /^Winery ready/.test(p.name); }) && yPl.some(function(p) { return /^YAN/.test(p.name) && p.lib.indexOf('yan-and-nutrients') >= 0; }) && yPl.some(function(p) { return /^Malolactic/.test(p.name); }));
+  const yW = cmWatchList({year: 2033, seasonal: [{month: '2033-02', tAnom: 3}, {month: '2033-03', tAnom: 2}, {month: '2033-04', tAnom: -2}, {month: '2033-05', tAnom: -3, rainPct: 150}, {month: '2033-06', rainPct: 140}], dates: {budbreak: '2033-04-05', firstPick: '2033-09-10'}, typical: {firstPick: '2033-09-24'}, sulfurGap: 20, sulfurYear: 2032});
+  ok('watch list: warm late winter, cool spring, wet bloom, early harvest, sulfur, smoke', yW.length === 6 && yW[0].level === 'high' && /2\.5°F above/.test(yW[0].text) && /2\.5°F below/.test(yW[1].text) && yW.some(function(w) { return /hydrogen sulfide/.test(w.text); }), yW.map(function(w) { return w.text.slice(0, 30); }).join(' | '));
+  ok('library domains: vineyard and winery', cmVitDomain({category: 'Winemaking: fermentation'}) === 'Winery' && cmVitDomain({category: 'Diseases'}) === 'Vineyard');
+  const yLib = await dbf.from('vit_library').select('slug,category'); const yReg2 = await dbf.from('regional_phenology').select('year,stage,approx');
+  ok('library has winery entries and Oregon regional timing is stored', (yLib.data || []).filter(function(e) { return /^(Winemaking|Enology)/.test(e.category); }).length >= 15 && (yReg2.data || []).filter(function(r) { return !r.approx; }).length >= 12, ((yLib.data || []).length) + ' entries, ' + ((yReg2.data || []).length) + ' regional dates');
   const sel = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
   if (click('Reports', 'button')) { await wait(1500); }
   const sel2 = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
@@ -391,13 +408,15 @@ window.cmSmoke = async function(opts) {
   await vtab('Weather and harvest', /Estate blocks: tons per acre/, 25);
   for (let i = 0; i < 25 && /Loading weather and block history/.test(T()); i++) await wait(1000);
   ok('Vine Blocks, weather and harvest', /Heat units and rain/.test(T()) && /Estate blocks: tons per acre/.test(T()) && /Ripeness samples/.test(T()) && /Harvest watch: Estate/.test(T()) && /Crop estimates and pick window/.test(T()) && !bad(), bad());
-  await vtab('Forecast and sprays', /Next 16 days/, 30);
+  await vtab('Forecast and sprays', /Next 16 days|did not answer/, 40);
   for (let i = 0; i < 40; i++) { if (/index started|index never started/.test(T()) && /Product use and/.test(T())) break; await wait(1000); }
-  ok('Vine Blocks, forecast and sprays', /Next 16 days/.test(T()) && /Seasonal outlook/.test(T()) && /Spray program and rain/.test(T()) && /Powdery mildew pressure \(Gubler-Thomas index\)/.test(T()) && /index started/.test(T()) && /Spray history and the weather/.test(T()) && /Product use and/.test(T()) && !bad(), bad());
+  const fcDown = /forecast service \(Open-Meteo\) did not answer/.test(T());
+  ok('Vine Blocks, forecast and sprays' + (fcDown ? ' (forecast service down, saved weather only)' : ''), (fcDown || (/Next 16 days/.test(T()) && /Seasonal outlook/.test(T()))) && /Spray program and rain/.test(T()) && /Powdery mildew pressure \(Gubler-Thomas index\)/.test(T()) && /index started/.test(T()) && /Spray history and the weather/.test(T()) && /Product use and/.test(T()) && !bad(), bad());
   await vtab('Field work', /Block board/);
   ok('Vine Blocks, field work', /Block board/.test(T()) && /Re-entry and pre-harvest windows/.test(T()) && /Scouting and growth stages/.test(T()) && /Add photos/.test(T()) && /Labor and cost per block/.test(T()) && !bad(), bad());
   await vtab('Season and budget', /The typical year/);
   for (let i = 0; i < 20 && !/Recommended work for/.test(T()); i++) await wait(1000);
+  ok('Vine Blocks, watch list, pruning and Oregon timing', /Things to watch in \d{4}/.test(T()) && /Pruning/.test(T()) && /Oregon public timing reports/.test(T()) && /Winery ready/.test(T()) && !bad(), bad());
   ok('Vine Blocks, forecast year against actual years', /Every year at this vineyard/.test(T()) && /Forecast year \d{4}/.test(T()) && /Usual miss/.test(T()) && /Recommended work for/.test(T()) && /Protect bloom/.test(T()) && !bad(), bad());
   ok('Vine Blocks, season and budget', /The typical year/.test(T()) && /Season markers by year/.test(T()) && /budget: preliminary, final and actual/.test(T()) && !bad(), bad());
   await vtab('Equipment', /Maintenance log/);
@@ -413,6 +432,7 @@ window.cmSmoke = async function(opts) {
   if (pvb) { const cl = Array.from(document.querySelectorAll('button')).filter(function(x) { return x.innerText.trim() === 'Close preview'; })[0]; if (cl) cl.click(); await wait(500); }
   await vtab('Vit library', /What may be happening now/, 20);
   for (let i = 0; i < 15 && !/entries/.test(T()); i++) await wait(1000);
+  ok('vit library has the vineyard and winery filter', /Vineyard and winery/.test(T()));
   ok('Vine Blocks, vit library', /What may be happening now/.test(T()) && /likely stage/.test(T()) && /Powdery mildew/.test(T()) && / of \d+ entries/.test(T()) && !bad(), bad());
   if (click('Study cards', 'button')) { await wait(600); ok('vit library study cards', /Card 1 of \d+/.test(T()) && !bad(), bad()); click('Read', 'button'); await wait(400); }
   await vtab('Weather and harvest', /Heat units and rain/);

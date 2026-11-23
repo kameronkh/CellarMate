@@ -109,12 +109,14 @@
   async function loadAll(site) {
     var k = site.id + '|' + new Date().toISOString().slice(0, 13); if (cache[k]) return cache[k];
     var ll = 'latitude=' + site.lat + '&longitude=' + site.lon;
+    /* each call gives up after 25 s so a slow weather service never leaves the page loading */
+    var to = function () { return window.AbortSignal && AbortSignal.timeout ? { signal: AbortSignal.timeout(25000) } : {}; };
     var a = await Promise.all([
-      fetch(BASE + '?' + ll + '&hourly=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&temperature_unit=fahrenheit&precipitation_unit=inch&wind_speed_unit=mph&timezone=' + TZ + '&forecast_days=16').then(function (r) { return r.json(); }),
-      fetch(ENS + '?' + ll + '&daily=precipitation_sum&models=ecmwf_ifs025&precipitation_unit=inch&timezone=' + TZ + '&forecast_days=15').then(function (r) { return r.json(); }).catch(function () { return null; }),
-      fetch(SEAS + '?' + ll + '&daily=temperature_2m_max,precipitation_sum&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=' + TZ).then(function (r) { return r.json(); }).catch(function () { return null; })
+      fetch(BASE + '?' + ll + '&hourly=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&temperature_unit=fahrenheit&precipitation_unit=inch&wind_speed_unit=mph&timezone=' + TZ + '&forecast_days=16', to()).then(function (r) { return r.json(); }).catch(function () { return null; }),
+      fetch(ENS + '?' + ll + '&daily=precipitation_sum&models=ecmwf_ifs025&precipitation_unit=inch&timezone=' + TZ + '&forecast_days=15', to()).then(function (r) { return r.json(); }).catch(function () { return null; }),
+      fetch(SEAS + '?' + ll + '&daily=temperature_2m_max,precipitation_sum&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=' + TZ, to()).then(function (r) { return r.json(); }).catch(function () { return null; })
     ]);
-    if (!a[0] || !a[0].hourly) throw new Error('Forecast service: ' + ((a[0] && a[0].reason) || 'no answer'));
+    if (!a[0] || !a[0].hourly) throw new Error('The forecast service (Open-Meteo) did not answer' + (a[0] && a[0].reason ? ': ' + a[0].reason : '') + '. The rest of the page works from saved weather; try again in a few minutes.');
     cache[k] = { fc: a[0], ens: a[1], seas: a[2] }; return cache[k];
   }
   function ensembleChance(ens) {
