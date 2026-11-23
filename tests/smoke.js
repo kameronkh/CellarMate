@@ -429,6 +429,19 @@ window.cmSmoke = async function(opts) {
   ok('sales orders kept out of cost of goods', cmCostSheet([{category: 'Sales order (not invoiced)', doc_date: '2025-10-21', amount: 1896}], [], [], 2025, 150).total === 0);
   const vl7 = await dbf.from('vit_library').select('slug').in('slug', ['film-yeast-in-barrel', 'lower-vine-potassium-keep-acid']);
   ok('library has film yeast and lowering vine potassium', !vl7.error && (vl7.data || []).length === 2, (vl7.data || []).length);
+  /* 1ad. round 8: notebook photos transcribed (SO2 rounds, malic, berry samples, review log) */
+  const pr8 = await dbf.from('photo_review').select('id,status');
+  ok('photo review log has at least 80 pages', !pr8.error && (pr8.data || []).length >= 80, (pr8.error || {}).message || (pr8.data || []).length);
+  const s528 = await dbf.from('so2_log').select('id').eq('date', '2026-05-28');
+  ok('5/28/2026 SO2 round loaded (readings and adds)', !s528.error && (s528.data || []).length >= 140, (s528.data || []).length);
+  const s502 = await dbf.from('so2_log').select('id').in('date', ['2026-05-02', '2026-05-08', '2026-04-26']);
+  ok('May and April 2026 SO2 pages loaded', !s502.error && (s502.data || []).length >= 50, (s502.data || []).length);
+  const bs8 = await dbf.from('berry_samples').select('id').eq('vintage', 2026);
+  ok('2026 berry samples loaded', !bs8.error && (bs8.data || []).length >= 40, (bs8.data || []).length);
+  const ml8 = await dbf.from('malic_results').select('id').gte('date', '2026-02-01');
+  ok('2026 malic results loaded', !ml8.error && (ml8.data || []).length >= 20, (ml8.data || []).length);
+  const tn8 = await dbf.from('tasting_notes').select('id').eq('kind', 'Cellar rule');
+  ok('SO2 dose rules from the notebook saved', !tn8.error && (tn8.data || []).length >= 3, (tn8.data || []).length);
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
