@@ -39,7 +39,7 @@ window.cmSmoke = async function(opts) {
   const plTotal = mz[4].filter(function(p) { return p.supplier === 'Crush2Cellar'; }).reduce(function(t, p) { return t + Number(p.amount || 0); }, 0);
   ok('Crush2Cellar invoice total is about 40,703', Math.abs(plTotal - 40703.38) < 1, plTotal.toFixed(2));
   const plAll = mz[4].reduce(function(t, p) { return t + Number(p.amount || 0); }, 0);
-  ok('all supplier invoices about 141,453 (barrels, glass, corks, labels added; Segulah removed)', Math.abs(plAll - 141452.95) < 1, plAll.toFixed(2));
+  ok('all supplier lines about 156,281 (Innovative Sourcing glass added)', Math.abs(plAll - 156281.30) < 1, plAll.toFixed(2));
   ok('Industrial Source gas invoices about 15,393', Math.abs(mz[4].filter(function(p) { return p.supplier === 'Industrial Source'; }).reduce(function(t, p) { return t + Number(p.amount || 0); }, 0) - 15392.80) < 1);
   ok('BRG use matches log (427 g)', (mrows.filter(function(r) { return /BRG/.test(r.s.name); })[0] || {}).faG === 427);
   /* 1d. barrel map module */
@@ -421,6 +421,14 @@ window.cmSmoke = async function(opts) {
   ok('2023 winemaker thinning directions loaded', !tp6.error && (tp6.data || []).length >= 12, (tp6.error || {}).message || (tp6.data || []).length);
   const vl = await dbf.from('vit_library').select('slug').in('slug', ['so2-will-not-hold', 'flat-unbalanced-white-after-mlf', 'chitosan-and-inactivated-yeast', 'ph-jump-press-and-mlf', 'lower-ph-in-the-cellar', 'vineyard-potassium-and-ph']);
   ok('library has the SO2, flat white, chitosan, pH and potassium entries', !vl.error && (vl.data || []).length === 6, (vl.data || []).length);
+  /* 1ac. round 7: inventory check behind cost of goods, film yeast and potassium library entries */
+  const icL = [{category: 'Glass', unit: 'cs', qty: 100, amount: 1500, doc_date: '2025-05-01'}, {category: 'Closures', unit: 'ea', qty: 1000, amount: 700, doc_date: '2025-05-01'}, {category: 'Grapes', doc_date: '2025-10-01', amount: 3000}];
+  const icS = cmCostSheet(icL, [], [{vintage: 2025, owner: 'Tystrya', tons: 2}], 2025, 150);
+  const icR = cmInventoryCheck(icL, [{vintage: 2025, cases_bottled: 50, bottled: '2026-06-15', cogs_per_bottle: 10}, {vintage: 2023, cases_bottled: 9}], icS);
+  ok('inventory check: glass and corks on hand, wine cost split between bottled and cellar', icR.glassLeftCases === 50 && icR.corksLeft === 400 && Math.round(icR.vintage.toBottled) === 1189 && Math.round(icR.vintage.inCellar) === 1811);
+  ok('sales orders kept out of cost of goods', cmCostSheet([{category: 'Sales order (not invoiced)', doc_date: '2025-10-21', amount: 1896}], [], [], 2025, 150).total === 0);
+  const vl7 = await dbf.from('vit_library').select('slug').in('slug', ['film-yeast-in-barrel', 'lower-vine-potassium-keep-acid']);
+  ok('library has film yeast and lowering vine potassium', !vl7.error && (vl7.data || []).length === 2, (vl7.data || []).length);
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
@@ -456,7 +464,7 @@ window.cmSmoke = async function(opts) {
   for (let i = 0; i < 10 && /Loading wine inventory/.test(document.body.innerText); i++) await wait(1000);
   ok('Inventory tab with CRM stock', /Wine inventory/.test(document.body.innerText) && /bottles on hand/.test(document.body.innerText) && /Record a bottling/.test(document.body.innerText) && /2024 Willamette Valley Chardonnay/.test(document.body.innerText) && !/CRM error: /.test(document.body.innerText) && !bad(), bad());
   tb = tabBtn('Costs'); if (tb) { tb.click(); for (let i = 0; i < 20 && !/Winemaking cost sheet/.test(document.body.innerText); i++) await wait(1000); }
-  ok('Costs tab: cost sheet with gases, filtration and oak', /Winemaking cost sheet/.test(document.body.innerText) && /Gases and dry ice/.test(document.body.innerText) && /Vintages side by side/.test(document.body.innerText) && /Per case/.test(document.body.innerText) && !bad(), bad());
+  ok('Costs tab: cost sheet with gases, filtration and oak', /Winemaking cost sheet/.test(document.body.innerText) && /Gases and dry ice/.test(document.body.innerText) && /Vintages side by side/.test(document.body.innerText) && /Per case/.test(document.body.innerText) && /Inventory check: what the costs are compared against/.test(document.body.innerText) && !bad(), bad());
   tb = tabBtn('Assets'); if (tb) { tb.click(); for (let i = 0; i < 20 && !/Winery assets/.test(document.body.innerText); i++) await wait(1000); }
   ok('Assets tab: barrels, gas equipment and the cellar check', /Winery assets/.test(document.body.innerText) && /Gillet Bourgogne Export/.test(document.body.innerText) && /Check against the cellar/.test(document.body.innerText) && !bad(), bad());
   /* 3b. vineyard side: every section of Vine Blocks */

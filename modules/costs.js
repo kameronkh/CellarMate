@@ -21,7 +21,7 @@
   function db() { return supa.schema('cellarmate'); }
 
   var CAPITAL = { 'Barrels': 1, 'Gas equipment': 1, 'Small equipment': 1 };
-  var NOTCOGS = { 'Sales and marketing': 1 }; /* selling costs, kept out of cost of goods */
+  var NOTCOGS = { 'Sales and marketing': 1, 'Sales order (not invoiced)': 1 }; /* selling costs, kept out of cost of goods */
   var GROUPS = [
     ['Fruit', ['Grapes']],
     ['Fermentation and cellar supplies', ['Yeast', 'Yeast nutrient', 'ML bacteria', 'Enzyme', 'Acid', 'SO2', 'Lees / mouthfeel', 'Cleaning', 'Lab']],
@@ -69,6 +69,40 @@
     });
     return { total: tot, items: items };
   }
+
+  /* Inventory check: what was bought against what was bottled, and where the wine cost sits.
+     Glass is counted in 12-bottle cases, corks in pieces; bottlings come from bottled_skus (cases bottled). */
+  function cmInventoryCheck(lines, skus, sheet) {
+    var bought = { glassCases: 0, glassCost: 0, corks: 0, corkCost: 0 };
+    (lines || []).forEach(function (l) {
+      var q = num(l.qty) || 0, a = num(l.amount) || 0;
+      if (l.category === 'Glass') { bought.glassCost += a; if (l.unit === 'cs') bought.glassCases += q; }
+      if (l.category === 'Closures') { bought.corkCost += a; if (l.unit === 'ea' && q > 1) bought.corks += q; }
+    });
+    var since = (lines || []).map(function (l) { return String(l.doc_date || ''); }).filter(Boolean).sort()[0] || '';
+    var bottledCases = 0, list = [];
+    (skus || []).forEach(function (k) {
+      var c = num(k.cases_bottled); if (!c) return;
+      if (k.bottled && String(k.bottled) < since) return; /* bottled before our first invoice on file */
+      if (!k.bottled && +k.vintage < 2024) return;
+      bottledCases += c; list.push(k);
+    });
+    var out = { bought: bought, bottledCases: bottledCases, bottledBottles: bottledCases * 12,
+      glassLeftCases: bought.glassCases - bottledCases, corksLeft: bought.corks - bottledCases * 12,
+      glassPerBottle: bought.glassCases ? bought.glassCost / (bought.glassCases * 12) : null,
+      corkEach: bought.corks ? bought.corkCost / bought.corks : null, skus: list };
+    if (sheet) {
+      var pack = sheet.rows.filter(function (r) { return r.group === 'Packaging'; }).reduce(function (t, r) { return t + r.amount; }, 0);
+      var bulk = sheet.total - pack, gal = sheet.gallons || 0;
+      var vintCases = (skus || []).filter(function (k) { return +k.vintage === sheet.y; }).reduce(function (t, k) { return t + (num(k.cases_bottled) || 0); }, 0);
+      var galBottled = vintCases * 2.378;
+      out.vintage = { y: sheet.y, bulk: bulk, pack: pack, bulkPerGal: gal ? bulk / gal : null, casesBottled: vintCases, galBottled: galBottled,
+        toBottled: gal ? bulk / gal * Math.min(gal, galBottled) : null, inCellar: gal ? bulk / gal * Math.max(0, gal - galBottled) : null,
+        galInCellar: Math.max(0, gal - galBottled),
+        crmCogs: (skus || []).filter(function (k) { return +k.vintage === sheet.y && num(k.cogs_per_bottle); }).map(function (k) { return { sku: k.sku, cogs: num(k.cogs_per_bottle) }; }) };
+    }
+    return out;
+  }
   function cmCostSheet(lines, assets, ferm, y, galPerTon) {
     var byCat = {}, use = [];
     (lines || []).forEach(function (l) {
@@ -103,12 +137,13 @@
     var s5 = React.useState(''), err = s5[0], setErr = s5[1];
     var load = function () {
       if (typeof CM_CACHE !== 'undefined') { delete CM_CACHE.purchase_lines; delete CM_CACHE.winery_assets; }
-      Promise.all([cmFetch('purchase_lines'), cmFetch('winery_assets'), cmFetch('fermenters')])
-        .then(function (a) { setD({ pl: a[0], as: a[1], f: a[2] }); }).catch(function (e) { setErr(e.message); setD({ pl: [], as: [], f: [] }); });
+      Promise.all([cmFetch('purchase_lines'), cmFetch('winery_assets'), cmFetch('fermenters'), cmFetch('bottled_skus')])
+        .then(function (a) { setD({ pl: a[0], as: a[1], f: a[2], sk: a[3] }); }).catch(function (e) { setErr(e.message); setD({ pl: [], as: [], f: [], sk: [] }); });
     };
     React.useEffect(load, []);
     if (!D) return cmE('div', { style: card() }, 'Loading costs...');
     var S = cmCostSheet(D.pl, D.as, D.f, y, gpt);
+    var IC = cmInventoryCheck(D.pl.filter(function (l) { return !NOTCOGS[l.category]; }), D.sk, S);
     var all = [2024, 2025, 2026].map(function (v) { return cmCostSheet(D.pl, D.as, D.f, v, gpt); });
     var setVint = function (l, v) { db().from('purchase_lines').update({ vintage: v ? +v : null }).eq('id', l.id).then(function (r) { if (r.error) setErr(r.error.message); else load(); }); };
     var sup = {}; S.lines.forEach(function (l) { sup[l.supplier || 'Unknown'] = (sup[l.supplier || 'Unknown'] || 0) + (num(l.amount) || 0); });
@@ -139,6 +174,13 @@
           }), cmE('tr', { key: 'tot' }, cmE('td', { style: Object.assign(td(true), { fontWeight: 700 }) }, 'Total'), cmE('td', { style: Object.assign(td(), { fontWeight: 700 }) }, money(S.total)), cmE('td', { style: td() }, ''),
             cmE('td', { style: Object.assign(td(), { fontWeight: 700 }) }, money(S.perTon)), cmE('td', { style: Object.assign(td(), { fontWeight: 700 }) }, money(S.perCase, 2)), cmE('td', { style: Object.assign(td(), { fontWeight: 700 }) }, money(S.perBottle, 2)))))),
         cmE('div', { style: Object.assign(small(), { marginTop: 6 }) }, 'Not in these numbers yet: estate vineyard farming (see Vine Blocks budget), labor, rent, consulting and compliance. Each is a question in the list.')),
+      cmE('div', { style: card() },
+        cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Inventory check: what the costs are compared against'),
+        cmE('div', { style: small() }, 'Cost of goods should follow the wine: bulk wine cost goes with each gallon, packaging goes with each bottle when it is used. This compares the invoices with what was actually bottled (bottled wines list) and what is still in the cellar.'),
+        cmE('div', { style: { fontSize: 12, marginTop: 6 } }, 'Vintage ' + y + ': bulk wine cost ' + money(IC.vintage.bulk) + ' over about ' + Math.round(S.gallons).toLocaleString() + ' gallons = ' + money(IC.vintage.bulkPerGal, 2) + ' per gallon (' + money(IC.vintage.bulkPerGal ? IC.vintage.bulkPerGal * 2.378 / 12 : null, 2) + ' per bottle before packaging). Bottled so far: ' + Math.round(IC.vintage.casesBottled).toLocaleString() + ' cases (' + Math.round(IC.vintage.galBottled).toLocaleString() + ' gal), carrying ' + money(IC.vintage.toBottled) + '. Still in the cellar: about ' + Math.round(IC.vintage.galInCellar).toLocaleString() + ' gal, ' + money(IC.vintage.inCellar) + ' of wine in progress.'),
+        IC.vintage.crmCogs.length ? cmE('div', { style: { fontSize: 12, marginTop: 4 } }, 'COGS per bottle set in the bottled wines list: ' + IC.vintage.crmCogs.map(function (c) { return c.sku + ' $' + c.cogs.toFixed(2); }).join('; ') + '.') : null,
+        cmE('div', { style: { fontSize: 12, marginTop: 6 } }, 'Dry goods, all invoices on file: glass ' + Math.round(IC.bought.glassCases).toLocaleString() + ' cases bought (' + money(IC.glassPerBottle, 2) + ' a bottle), ' + Math.round(IC.bottledCases).toLocaleString() + ' cases bottled since, so about ' + Math.round(IC.glassLeftCases).toLocaleString() + ' cases should be on hand. Corks ' + Math.round(IC.bought.corks).toLocaleString() + ' bought (' + money(IC.corkEach, 2) + ' each) against ' + Math.round(IC.bottledBottles).toLocaleString() + ' bottles filled: ' + (IC.corksLeft >= 0 ? 'about ' + Math.round(IC.corksLeft).toLocaleString() + ' should be on hand.' : Math.round(-IC.corksLeft).toLocaleString() + ' more bottles than corks on file (older stock, screw caps, or missing invoices).')),
+        cmE('div', { style: Object.assign(small(), { marginTop: 4 }) }, 'Count the glass and corks on hand to check these. Packaging bought ahead of bottling is dry goods inventory, not cost of goods yet.')),
       cmE('div', { style: card() },
         cmE('div', { style: { fontWeight: 700, marginBottom: 4 } }, 'Vintages side by side'),
         cmE('div', { style: { overflowX: 'auto' } }, cmE('table', { style: { borderCollapse: 'collapse', width: '100%', minWidth: 420 } },
@@ -230,7 +272,7 @@
           cmBtn('Add', add, true, false))));
   }
 
-  window.cmLineVintage = cmLineVintage; window.cmCostGroup = cmCostGroup; window.cmAssetValue = cmAssetValue; window.cmCostSheet = cmCostSheet;
+  window.cmLineVintage = cmLineVintage; window.cmCostGroup = cmCostGroup; window.cmAssetValue = cmAssetValue; window.cmCostSheet = cmCostSheet; window.cmInventoryCheck = cmInventoryCheck;
   window.CmCostSheet = CmCostSheet; window.CmAssets = CmAssets;
   window.CM_MODULES = window.CM_MODULES || {};
   window.CM_MODULES.cost = { label: 'Costs', Component: CmCostSheet, order: 64 };
