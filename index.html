@@ -4106,6 +4106,29 @@ function CmFocusReports(props) {
     groups.filter(function(g) { return g.rows.length; }).length ? cmTable(cols, groups.filter(function(g) { return g.rows.length; })) : cmNote('Nothing to list for this report and vintage.'));
 }
 
+/* KMBS (potassium metabisulfite, about 57.6% SO2) to protect a tank, topping vessel or keg. grams = ppm x litres / 576. */
+function cmVesL(x) {
+  const pick = function(t) { t = String(t || ''); let m = t.match(/([\d.]+)\s*gal/i); if (m) return Math.round(parseFloat(m[1]) * 3.785); m = t.match(/([\d.]+)\s*L\b/); if (m) return Math.round(parseFloat(m[1])); return null; };
+  return pick(x.volume_text) || pick(x.size);
+}
+function cmKmbsPlan(x) {
+  const L = cmVesL(x); if (!L) return null;
+  const white = /chard|albari|ros|white/i.test((x.contents || '') + ' ' + (x.vessel || ''));
+  const ph = x.ph != null && x.ph !== '' && !isNaN(Number(x.ph)) ? Number(x.ph) : null;
+  const per10 = Math.round(10 * L / 576 * 10) / 10;
+  const tg = ph ? Math.min(50, Math.round((white ? 0.8 : 0.5) * (1 + Math.pow(10, ph - 1.81)))) : null;
+  const g = tg ? Math.round(tg * L / 576 * 10) / 10 : null;
+  const mt = String(x.malic_text || ''); let mlf = null;
+  if (mt) { if (mt.charAt(0) === '<') mlf = true; else { const v = parseFloat(mt); if (!isNaN(v)) mlf = v < 0.2; } }
+  return {L:L, ph:ph, target:tg, g:g, per10:per10, mlf:mlf};
+}
+function cmKmbsText(p) {
+  if (!p) return '';
+  const base = p.g != null ? p.g + ' g KMBS to reach ' + p.target + ' ppm free (from 0), or ' + p.per10 + ' g per +10 ppm' : 'test pH for the target; ' + p.per10 + ' g KMBS per +10 ppm';
+  if (p.mlf === false) return 'HOLD, malic not done. Once under 0.20: ' + base;
+  if (p.mlf == null) return 'test malic first. If done: ' + base;
+  return base;
+}
 function CmTanks() {
   const sV = React.useState(null), ves = sV[0], setVes = sV[1];
   const sE = React.useState(''), err = sE[0], setErr = sE[1];
@@ -4115,8 +4138,8 @@ function CmTanks() {
   const isEmpty = function(x) { return /^empty|^[?]/i.test(x.status || ''); };
   const mine = function(x) { return /tystrya|house|sawyer/i.test(x.owner || ''); };
   const sets = [['Topping tanks and kegs', ves.filter(function(x) { return isTop(x) && !isEmpty(x); })], ['Tanks and vessels holding wine', ves.filter(function(x) { return !isTop(x) && !isEmpty(x) && mine(x); })], ['Client and other winemakers', ves.filter(function(x) { return !isTop(x) && !isEmpty(x) && !mine(x); })], ['Empty or not confirmed', ves.filter(isEmpty)]];
-  const cols = [['code','Code'],['vessel','Vessel'],['owner','Owner'],['size','Size'],['volume','Volume now'],['contents','Contents'],['ph','pH'],['malic','Malic'],['prev','Previously'],['status','Status'],['next','Next step'],['check','To confirm']];
-  const flat = function(x) { return {code:x.tank_code || '', col:cmTextCol((x.contents || '') + ' ' + (x.vessel || '')), vessel:x.vessel, owner:x.owner || '', size:x.size || '', volume:x.volume_text || '', contents:x.contents || '', ph:cmFix(x.ph, 2), malic:x.malic_text || '', prev:x.previously || '', status:x.status || '', next:x.next_step || '', check:x.check_note || ''}; };
+  const cols = [['code','Code'],['vessel','Vessel'],['owner','Owner'],['size','Size'],['volume','Volume now'],['contents','Contents'],['ph','pH'],['malic','Malic'],['prev','Previously'],['status','Status'],['kmbs','KMBS to protect'],['next','Next step'],['check','To confirm']];
+  const flat = function(x) { return {code:x.tank_code || '', col:cmTextCol((x.contents || '') + ' ' + (x.vessel || '')), vessel:x.vessel, owner:x.owner || '', size:x.size || '', volume:x.volume_text || '', contents:x.contents || '', ph:cmFix(x.ph, 2), malic:x.malic_text || '', prev:x.previously || '', status:x.status || '', kmbs:(mine(x) && !isEmpty(x)) ? cmKmbsText(cmKmbsPlan(x)) : '', next:x.next_step || '', check:x.check_note || ''}; };
   const groups = sets.map(function(s) { return {title:s[0], rows:s[1].map(flat)}; }).filter(function(g) { return g.rows.length; });
   const guide = ['Keep every topping vessel full to the lid, or under inert gas. Part-full kegs and tanks oxidise quickly.', 'Top like with like: same vintage and wine where you can (2026 Ty topping for 2026 Estate, Sawyer for Sawyer, 2025 PN topping for 2025).', 'Do not top a finished, sulfured barrel with wine that is still in MLF. Check malic on the topping wine first.', 'Smell and taste the topping wine and check free SO2 before each topping round; hold it at the target for its pH.', 'As the volume drops, move the wine down to a smaller vessel and re-tape it with contents and date.', 'Re-read pH and malic on topping vessels about once a month and after any transfer.'];
   const card = function(x) {
@@ -4124,6 +4147,7 @@ function CmTanks() {
       cmE('div', {style:{display:'flex', justifyContent:'space-between', gap:8}}, cmE('span', {style:{fontWeight:800, fontSize:14}}, (x.tank_code ? x.tank_code + CM_MID : '') + x.vessel), cmE('span', {style:{fontSize:11, color:C.textMuted, whiteSpace:'nowrap'}}, x.volume_text || x.size || '')),
       cmE('div', {style:{fontSize:12, color:C.text, marginTop:2}}, (x.contents || 'Contents not written') + (x.owner ? CM_MID + x.owner : '')),
       (x.ph != null || x.malic_text || x.previously) ? cmE('div', {style:{fontSize:11, color:C.textMuted, marginTop:3}}, [x.ph != null ? 'pH ' + cmFix(x.ph, 2) : null, x.malic_text ? 'malic ' + x.malic_text : null, x.previously ? 'previously ' + x.previously : null].filter(Boolean).join(CM_MID)) : null,
+      (mine(x) && !isEmpty(x) && cmKmbsPlan(x)) ? cmE('div', {style:{fontSize:12, fontWeight:700, color:C.orange, marginTop:3}}, 'KMBS: ' + cmKmbsText(cmKmbsPlan(x))) : null,
       x.next_step ? cmE('div', {style:{fontSize:12, fontWeight:700, color:C.accentLight, marginTop:3}}, x.next_step) : null,
       x.check_note ? cmE('div', {style:{fontSize:11, color:C.yellow, marginTop:3}}, 'Confirm: ' + x.check_note) : null);
   };

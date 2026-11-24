@@ -492,6 +492,14 @@ window.cmSmoke = async function(opts) {
   const bt12 = cmMapIndex(bmz[0], bmz[1], bmz[2], await cmStatusRows(), tl12);
   ok('map barrels carry pH with a test date', bt12.filter(function(p) { return p.barrel && p.tests && p.tests.ph && p.tests.ph.d; }).length > 100, bt12.filter(function(p) { return p.barrel && p.tests && p.tests.ph && p.tests.ph.d; }).length);
   ok('map barrels carry varietal', bt12.filter(function(p) { return p.barrel && p.var && p.var !== 'Unknown'; }).length > 100);
+  /* 1ai. round 13: KMBS to protect tanks, topping vessels and kegs */
+  const k13 = cmKmbsPlan({volume_text: '~345 gal', ph: '3.25', malic_text: '0.28', contents: 'Chardonnay blend', vessel: 'T20'});
+  ok('KMBS plan: tank with malic 0.28 holds, target 23 ppm = 52 g in 1306 L', k13 && k13.L === 1306 && k13.target === 23 && Math.round(k13.g) === 52 && k13.mlf === false && /^HOLD/.test(cmKmbsText(k13)), JSON.stringify(k13));
+  const k13b = cmKmbsPlan({volume_text: '250 L', ph: '3.76', malic_text: '<0.05', contents: '2026 Sawyer Pinot topping', vessel: '26 Sawyer topping'});
+  ok('KMBS plan: finished red topping tank gets a dose (45 ppm = 19.5 g in 250 L)', k13b && k13b.target === 45 && k13b.g === 19.5 && k13b.mlf === true && !/HOLD|first/.test(cmKmbsText(k13b)), JSON.stringify(k13b));
+  const k13c = cmKmbsPlan({volume_text: '8 gal', contents: 'Chardonnay topping', vessel: 'K-1'});
+  ok('KMBS plan: no pH gives a per-10-ppm dose and asks for pH and malic', k13c && k13c.target == null && k13c.per10 > 0 && /test malic first/.test(cmKmbsText(k13c)) && /test pH/.test(cmKmbsText(k13c)), cmKmbsText(k13c));
+  ok('KMBS plan: stainless barrel with no volume gives no dose', cmKmbsPlan({size: 'Stainless barrel', ph: '3.64'}) === null);
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
