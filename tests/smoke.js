@@ -484,6 +484,14 @@ window.cmSmoke = async function(opts) {
   ok('map says nothing to add when already at target', (cmMapRecFromReading({target: 30, L: 225}, 33) || {}).g === 0);
   const bm11 = cmMapIndex(bmz[0], bmz[1], bmz[2], await cmStatusRows());
   ok('map barrels carry recommended free SO2', bm11.filter(function(p) { return p.barrel && p.target != null; }).length > 100, bm11.filter(function(p) { return p.barrel && p.target != null; }).length);
+  /* 1ah. round 12: map shows last tests with dates */
+  const tt12 = cmMapTests([], [{vintage: 2026, barrel: '26-001', kind: 'Reading', date: '2026-11-18', free_so2_ppm: 20, ph: 3.3}], [{vintage: 2026, barrel: '26-001', date: '2026-11-16', malic_g_l: 0}], [{barrel_id: '26-001', date: '2026-11-19', ph: 3.35, malic_g_l: null}]);
+  const t12 = tt12['2026|26-001'] || {};
+  ok('map tests: newest pH, free SO2 and malic 0 each keep their date', t12.ph && t12.ph.v === 3.35 && t12.ph.d === '2026-11-19' && t12.fso2 && t12.fso2.v === 20 && t12.fso2.d === '2026-11-18' && t12.malic && t12.malic.v === 0 && t12.malic.d === '2026-11-16', JSON.stringify(t12));
+  const tl12 = cmMapTests(await cmFetch('lab_results'), await cmFetch('so2_log'), await cmFetch('malic_results'), await cmFetch('ph_readings_2026_11_18'));
+  const bt12 = cmMapIndex(bmz[0], bmz[1], bmz[2], await cmStatusRows(), tl12);
+  ok('map barrels carry pH with a test date', bt12.filter(function(p) { return p.barrel && p.tests && p.tests.ph && p.tests.ph.d; }).length > 100, bt12.filter(function(p) { return p.barrel && p.tests && p.tests.ph && p.tests.ph.d; }).length);
+  ok('map barrels carry varietal', bt12.filter(function(p) { return p.barrel && p.var && p.var !== 'Unknown'; }).length > 100);
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);

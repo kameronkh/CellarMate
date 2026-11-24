@@ -72,7 +72,20 @@
     var a = p.area === 'EBS' ? 0 : p.area === 'Rows' ? 1 : 2;
     return [a, ('00' + p.rack).slice(-2), p.col, p.side === 'Front' ? 0 : 1, p.level || '', p.barrel || ''].join('|');
   }
-  function cmMapIndex(pos, s25, s26, srows) {
+  /* latest pH, malic and free SO2 per barrel with the date of each test: lab results, SO2 log, malic results and the Nov 18 pH round */
+  function cmMapTests(lab, so2, malic, phr) {
+    var P = typeof cmLatestPanels === 'function' ? cmLatestPanels(lab || [], so2 || [], malic || []) : [];
+    var idx = {};
+    P.forEach(function (p) { idx[p.vintage + '|' + p.barrel] = p.vals; });
+    (phr || []).forEach(function (r) {
+      var b = r.barrel_id; if (!b) return;
+      var k = '2026|' + b; var v = idx[k] = idx[k] || {};
+      if (r.ph != null && r.ph !== '' && (!v.ph || String(r.date) >= String(v.ph.d))) v.ph = { d: r.date, v: Number(r.ph), t: String(Number(r.ph)), src: 'pH round' };
+      if (r.malic_g_l != null && r.malic_g_l !== '' && (!v.malic || String(r.date) >= String(v.malic.d))) v.malic = { d: r.date, v: Number(r.malic_g_l), t: String(Number(r.malic_g_l)), src: 'pH round' };
+    });
+    return idx;
+  }
+  function cmMapIndex(pos, s25, s26, srows, tests) {
     var i25 = {}, i26 = {}, iS = {};
     (srows || []).forEach(function (r) { var b = String(r.b || ''); iS[r.v + '|' + (r.v === 2025 ? b.replace(/^25-0*/, '') : b)] = r; });
     s25.forEach(function (r) { i25[r.barrel] = r; });
@@ -87,6 +100,14 @@
       if (o.g === '' || o.g === undefined) o.g = null;
       o.target = sr ? sr.target : (st && st.target_free_so2_ppm != null && st.target_free_so2_ppm !== '' ? Number(st.target_free_so2_ppm) : null);
       o.last = sr ? sr.last : null; o.est = sr ? sr.est : null; o.tab = sr ? sr.tab : null; o.L = sr && sr.L ? sr.L : 225;
+      var tk = tests && p.barrel ? tests[p.vintage + '|' + p.barrel] : null;
+      o.tests = Object.assign({}, tk || {});
+      if (p.barrel && st) {
+        if (!o.tests.ph && st.ph_latest != null && st.ph_latest !== '') o.tests.ph = { v: Number(st.ph_latest), t: String(Number(st.ph_latest)), d: null };
+        if (!o.tests.malic && st.malic_g_l_text) o.tests.malic = { v: parseFloat(st.malic_g_l_text), t: String(st.malic_g_l_text), d: st.malic_date || null };
+        if (!o.tests.fso2 && st.last_free_so2_ppm != null && st.last_free_so2_ppm !== '') o.tests.fso2 = { v: Number(st.last_free_so2_ppm), t: String(Number(st.last_free_so2_ppm)), d: st.last_free_so2_date || null };
+      }
+      o.var = p.barrel && st && typeof cmVar26 === 'function' ? (p.vintage === 2026 ? cmVar26(st) : cmVar25(st)) : '';
       return o;
     });
   }
@@ -218,6 +239,7 @@
     var sHi = React.useState(null), selHist = sHi[0], setSelHist = sHi[1];
     var sFm = React.useState(so2Form()), form = sFm[0], setForm = sFm[1];
     var sFs = React.useState(''), fs = sFs[0], setFs = sFs[1];
+    var sLb = React.useState(function () { try { return localStorage.getItem('cm_map_label') || 'lot'; } catch (e) { return 'lot'; } }), labelBy = sLb[0], setLabelBy = sLb[1];
     var sAg = React.useState(''), addG = sAg[0], setAddG = sAg[1];
     var sAd = React.useState(true), adv = sAd[0], setAdv = sAd[1];
     React.useEffect(function () { setFs(''); setAddG(''); }, [sel && sel.id]);
@@ -238,8 +260,9 @@
     var canMove = !!MV && (typeof cmCan !== 'function' || cmCan('moves'));
     React.useEffect(function () {
       var live = true;
-      Promise.all([cmFetch('barrel_positions'), cmFetch('barrel_status_2025'), cmFetch('barrel_status_2026'), (typeof cmStatusRows === 'function' ? cmStatusRows() : Promise.resolve([])).catch(function () { return []; })])
-        .then(function (a) { if (live) { setRaw({ s25: a[1], s26: a[2] }); setD(cmMapIndex(a[0], a[1], a[2], a[3])); } })
+      Promise.all([cmFetch('barrel_positions'), cmFetch('barrel_status_2025'), cmFetch('barrel_status_2026'), (typeof cmStatusRows === 'function' ? cmStatusRows() : Promise.resolve([])).catch(function () { return []; }),
+        cmFetch('lab_results').catch(function () { return []; }), cmFetch('so2_log').catch(function () { return []; }), cmFetch('malic_results').catch(function () { return []; }), cmFetch('ph_readings_2026_11_18').catch(function () { return []; })])
+        .then(function (a) { if (live) { setRaw({ s25: a[1], s26: a[2] }); setD(cmMapIndex(a[0], a[1], a[2], a[3], cmMapTests(a[4], a[5], a[6], a[7]))); } })
         .catch(function (e) { if (live) { setErr(e.message); setD([]); } });
       if (MV && moveMode) MV.recent(12).then(function (h) { if (live) setHist(h); }).catch(function () {});
       return function () { live = false; };
@@ -263,6 +286,15 @@
       return { onDragOver: function (e) { if (moveMode) e.preventDefault(); }, onDrop: function (e) { if (!moveMode) return; e.preventDefault(); chooseSlot(slot); } };
     };
     var isTarget = function (slot) { return target && slot && MV && MV.slotKey(target) === MV.slotKey(slot); };
+    var subOf = function (p) {
+      var T = p.tests || {};
+      if (labelBy === 'ph') return T.ph ? String(T.ph.t || T.ph.v) : '-';
+      if (labelBy === 'fso2') return T.fso2 ? T.fso2.v + ' ppm' : '-';
+      if (labelBy === 'malic') return T.malic ? String(T.malic.t || T.malic.v) : '-';
+      if (labelBy === 'target') return p.target != null ? 'tgt ' + p.target : '-';
+      if (labelBy === 'add') return p.tab || (p.g != null && Number(p.g) > 0 ? p.g + ' g' : '');
+      return by === 'step' ? STEP_LABEL[p.step] : (p.vintage === 2025 && p.area === 'Rows' ? '2025' : short(p.st));
+    };
     var box = function (p, key, slot) {
       if (!p) return cmE('div', Object.assign({ key: key, onClick: function () { chooseSlot(slot); },
         style: { minHeight: 34, border: (isTarget(slot) ? '2px solid ' + C.accentLight : '1px dashed ' + C.cardBorder), borderRadius: 6, cursor: moveMode && pick ? 'pointer' : 'default', background: moveMode && pick ? 'rgba(139,92,246,0.08)' : 'transparent' } }, slot ? dropProps(slot) : {}));
@@ -277,7 +309,7 @@
         style: { minHeight: 34, background: fillOf(p, by, DARK), borderRadius: 6, padding: '3px 4px', cursor: moveMode ? 'grab' : 'pointer', textAlign: 'center', lineHeight: 1.15, opacity: isPick ? 0.55 : 1, userSelect: 'none', WebkitUserSelect: 'none', WebkitTapHighlightColor: 'transparent', WebkitTouchCallout: 'none',
           border: '2px solid ' + (isPick || isTarget(slot) ? C.accentLight : hit(p) ? C.accentLight : isSel ? '#fff' : p.flag ? C.orange : 'transparent') } }, slot ? dropProps(slot) : {}),
         cmE('div', { style: { fontWeight: 800, fontSize: 12 } }, p.barrel ? (p.vintage === 2026 ? p.barrel.slice(3) : p.barrel) : p.label),
-        p.barrel ? cmE('div', { style: { fontSize: 9, color: '#ddd' } }, by === 'step' ? STEP_LABEL[p.step] : (p.vintage === 2025 && p.area === 'Rows' ? '2025' : short(p.st))) : null);
+        p.barrel ? cmE('div', { style: { fontSize: 9, color: '#ddd' } }, subOf(p)) : null);
     };
     var spotBtn = function (p) { return cmE('span', { key: p.id, onClick: function () { setSel(p); setView('layout'); setArea(p.area === 'Pallets' ? 'Pallets' : p.area); setQ(p.barrel); }, style: { cursor: 'pointer', color: C.accentLight, whiteSpace: 'nowrap' } }, p.barrel + ' · ' + where(p)); };
 
@@ -380,6 +412,21 @@
             cmE('span', { style: { flex: 1 } }, MV.describe(m) + (m.moved_by ? ' · ' + m.moved_by : '') + (m.undone_at ? ' (undone)' : '')),
             !m.undone_at ? cmE('span', { onClick: function () { runMove(function () { return MV.undo(m.id); }, 'Undone.'); }, style: { color: C.accentLight, cursor: 'pointer' } }, 'Undo') : null);
         })) : null) : null;
+    var fmtD = function (d) { if (!d) return 'date not on file'; var s = String(d); return (+s.slice(5, 7)) + '/' + (+s.slice(8, 10)) + '/' + s.slice(2, 4); };
+    var testRow = function (label, t, unit, derived) {
+      return cmE('div', { key: label, style: { display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, padding: '3px 0', borderBottom: '1px solid ' + C.cardBorder } },
+        cmE('span', { style: { color: C.textDim } }, label),
+        cmE('span', { style: { fontWeight: 700, textAlign: 'right' } }, t ? String(t.t != null ? t.t : t.v) + (unit || '') + '  ' : 'no test on file',
+          t && !(derived && !t.d) ? cmE('span', { style: { fontWeight: 400, color: C.textDim } }, '(' + (derived ? 'from tests to ' : '') + fmtD(t.d) + ')') : null));
+    };
+    var testsBlock = function (p) {
+      var T = p.tests || {};
+      var last = [T.ph, T.fso2, T.malic].map(function (x) { return x && x.d; }).filter(Boolean).sort().pop() || null;
+      return cmE('div', { style: { marginTop: 6 } },
+        testRow('pH', T.ph), testRow('Malic (g/L)', T.malic), testRow('Free SO2 at last test', T.fso2, ' ppm'),
+        testRow('Recommended free SO2', p.target != null ? { t: p.target, d: last } : null, ' ppm', true),
+        p.g != null && Number(p.g) > 0 ? testRow('Add: tablets or KMS', { t: addText(p, form), d: last }, '', true) : null);
+    };
     var fsN = fs === '' ? null : Number(fs);
     var eff = sel && sel.barrel ? (fsN != null && !isNaN(fsN) && recFromReading(sel, fsN) ? recFromReading(sel, fsN) : { g: sel.g, tab: sel.tab }) : null;
     var amountLabel = function (via) {
@@ -426,9 +473,9 @@
       msg ? cmE('div', { style: { fontSize: 12, color: C.accentLight, marginTop: 4 } }, msg) : null) : null;
     var detail = sel && view === 'layout' && !moveMode ? cmE('div', { style: Object.assign({}, card, { borderColor: C.accentLight }) },
       cmE('div', { style: { fontWeight: 800 } }, sel.barrel ? (sel.vintage + ' barrel ' + sel.barrel) : sel.label),
-      cmE('div', { style: small }, where(sel)),
-      sel.st ? cmE('div', { style: { fontSize: 12, marginTop: 4 } }, [sel.st.lot_name || sel.st.vineyard, sel.st.owner, sel.st.wine_type, sel.st.ph_latest ? 'pH ' + sel.st.ph_latest : null].filter(Boolean).join(' · ')) : null,
-      sel.barrel && (sel.target != null || sel.last != null || sel.est != null) ? cmE('div', { style: { fontSize: 12, marginTop: 4 } }, 'Free SO2: ' + [sel.last != null ? 'last ' + sel.last + ' ppm' : null, sel.est != null ? 'est. now ' + sel.est + ' ppm' : null, sel.target != null ? 'recommended ' + sel.target + ' ppm' : null].filter(Boolean).join(' · ')) : null,
+      cmE('div', { style: { fontSize: 13, fontWeight: 700, color: C.accentLight } }, 'Where: ' + where(sel)),
+      sel.st ? cmE('div', { style: { fontSize: 12, marginTop: 4 } }, [sel.var, sel.st.lot_name || sel.st.vineyard, sel.st.owner, sel.st.wine_type].filter(function (x, i, a) { return x && a.indexOf(x) === i; }).join(' · ')) : null,
+      sel.barrel ? testsBlock(sel) : null,
       sel.act ? cmE('div', { style: { fontSize: 12, color: C.accentLight, marginTop: 2 } }, sel.act) : null,
       sel.g != null && Number(sel.g) > 0 ? cmE('div', { style: { fontSize: 12, fontWeight: 700, marginTop: 2 } }, 'SO2 to add: ' + addText(sel, form)) : null,
       quick,
@@ -466,6 +513,8 @@
         cmE('input', { value: q, onChange: function (e) { setQ(e.target.value.trim()); }, placeholder: view === 'lots' ? 'Find wine' : 'Find barrel', style: Object.assign({}, cmSel, { flex: '1 1 120px' }) }),
         (q || sel || pick || target) ? cmE('button', { onClick: function () { setQ(''); setSel(null); setPick(null); setTarget(null); setMsg(''); setErr(''); }, style: { background: C.card, color: C.accentLight, border: '1px solid ' + C.cardBorder, borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontWeight: 700 } }, 'Clear highlight') : null,
         canMove && view === 'layout' ? cmE('button', { onClick: function () { setMoveMode(!moveMode); setPick(null); setTarget(null); setErr(''); setMsg(''); setSel(null); }, style: { background: moveMode ? C.orange : C.card, color: moveMode ? '#fff' : C.accentLight, border: '1px solid ' + (moveMode ? C.orange : C.cardBorder), borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, moveMode ? 'Done moving' : 'Move barrels') : null,
+        cmE('select', { value: labelBy, title: 'What each barrel box shows', onChange: function (e) { setLabelBy(e.target.value); try { localStorage.setItem('cm_map_label', e.target.value); } catch (x) {} }, style: Object.assign({}, cmSel, { flex: '1 1 150px' }) },
+          [['lot', 'Box shows: lot'], ['ph', 'Box shows: pH'], ['fso2', 'Box shows: free SO2'], ['malic', 'Box shows: malic'], ['target', 'Box shows: target SO2'], ['add', 'Box shows: tablets to add']].map(function (o) { return cmE('option', { key: o[0], value: o[0] }, o[1]); })),
         cmE('select', { value: form, title: 'How SO2 additions are shown', onChange: function (e) { setForm(e.target.value); try { localStorage.setItem('cm_so2_form', e.target.value); } catch (x) {} }, style: Object.assign({}, cmSel, { flex: '1 1 150px' }) },
           [['both', 'SO2 add: tablets or KMS'], ['tabs', 'SO2 add: tablets'], ['kms', 'SO2 add: KMS powder']].map(function (o) { return cmE('option', { key: o[0], value: o[0] }, o[1]); })),
         cmE('button', { onClick: function () { printView(view, D, by); }, style: { background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, 'Print'),
@@ -482,7 +531,7 @@
       labelPanel, movePanel, detail, body);
   }
 
-  window.cmMapIndex = cmMapIndex; window.cmMapLots = cmMapLots; window.cmMapWork = cmMapWork; window.cmMapPrintHtml = cmMapPrintHtml; window.cmMapAddText = addText; window.cmMapKms = kmsFromTabGrams; window.cmMapRecFromReading = recFromReading;
+  window.cmMapIndex = cmMapIndex; window.cmMapLots = cmMapLots; window.cmMapWork = cmMapWork; window.cmMapPrintHtml = cmMapPrintHtml; window.cmMapAddText = addText; window.cmMapKms = kmsFromTabGrams; window.cmMapRecFromReading = recFromReading; window.cmMapTests = cmMapTests;
   window.CM_MODULES = window.CM_MODULES || {};
   window.CM_MODULES.map = { label: 'Map', Component: CmBarrelMap, order: 47 };
 })();
