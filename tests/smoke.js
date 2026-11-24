@@ -474,6 +474,16 @@ window.cmSmoke = async function(opts) {
     ok('offline: change made with no connection is queued and shown', off.queued && off.seen, JSON.stringify(off));
     ok('offline: queued change syncs when back online', off.synced && !CM_NET.failed.length, JSON.stringify(off));
   }
+  /* 1ag. round 11: map SO2 recommendations in tablets and KMS powder */
+  const at11 = {g: 11, tab: '1\u00d75 + 3\u00d72'};
+  ok('map SO2 add shows tablets or KMS powder', /tablets/.test(cmMapAddText(at11, 'tabs')) && !/KMS/.test(cmMapAddText(at11, 'tabs')) && /KMS powder/.test(cmMapAddText(at11, 'kms')) && !/tablets/.test(cmMapAddText(at11, 'kms')) && /tablets.* or .*KMS/.test(cmMapAddText(at11, 'both')), cmMapAddText(at11, 'both'));
+  ok('map KMS grams come from tablet grams (11 g tablet = 9.5 g KMS)', cmMapKms(11) === 9.5, cmMapKms(11));
+  ok('map SO2 add is blank when nothing to add', cmMapAddText({g: null}, 'both') === '' && cmMapAddText({g: 0}, 'both') === '');
+  const rr11 = cmMapRecFromReading({target: 30, L: 225}, 19);
+  ok('map works out the dose from a free SO2 reading (11 ppm gap in 225 L = 5 g tablet, 4.3 g KMS)', rr11 && rr11.g === 5 && rr11.kms === 4.3 && /KMS powder/.test(cmMapAddText(rr11, 'kms')) && /4\.3 g KMS/.test(cmMapAddText(rr11, 'kms')), JSON.stringify(rr11));
+  ok('map says nothing to add when already at target', (cmMapRecFromReading({target: 30, L: 225}, 33) || {}).g === 0);
+  const bm11 = cmMapIndex(bmz[0], bmz[1], bmz[2], await cmStatusRows());
+  ok('map barrels carry recommended free SO2', bm11.filter(function(p) { return p.barrel && p.target != null; }).length > 100, bm11.filter(function(p) { return p.barrel && p.target != null; }).length);
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);

@@ -28,6 +28,29 @@
     if (/test|malic|brix|measure|check|relabel/.test(t)) return 'test';
     return 'ok';
   }
+  /* SO2 to add. g is the tablet-gram total from the status sheet (about 495 mg SO2 per g of tablet).
+     KMS powder is about 576 mg SO2 per g, so powder grams = tablet grams x 495 / 576.
+     form: 'tabs' | 'kms' | 'both' ('auto' = tablets in barrels, powder in tanks). */
+  function so2Form() { try { return localStorage.getItem('cm_so2_form') || 'both'; } catch (e) { return 'both'; } }
+  function kmsFromTabGrams(g) { return Math.round(Number(g) * 495 / 576 * 10) / 10; }
+  function addText(p, form, isTank) {
+    if (!p || p.g == null || !(Number(p.g) > 0)) return '';
+    var f = form === 'auto' ? (isTank ? 'kms' : 'tabs') : (form || 'both');
+    var tabs = p.tab || (typeof cmTabletsFor === 'function' ? cmTabletsFor(Number(p.g)).tab : '');
+    var t = (tabs ? tabs + ' tablets, ' : 'tablets, ') + p.g + ' g';
+    var k = (p.kms != null ? p.kms : kmsFromTabGrams(p.g)) + ' g KMS powder';
+    return f === 'tabs' ? t : f === 'kms' ? k : t + ' or ' + k;
+  }
+  /* dose worked out from a free SO2 reading taken at the barrel: gap to target x litres. 495 mg SO2 per g of tablet, 576 per g of KMS. */
+  function recFromReading(p, fs) {
+    var L = Number(p && p.L) || 225;
+    if (!p || p.target == null || fs == null || isNaN(Number(fs))) return null;
+    var gap = Number(p.target) - Number(fs);
+    if (gap <= 0) return { g: 0, tab: '', kms: 0, gap: gap };
+    var raw = Math.round(gap * L / 495 * 10) / 10;
+    var t = typeof cmTabletsFor === 'function' ? cmTabletsFor(raw) : { g: raw, tab: '' };
+    return { g: t.g, tab: t.tab, kms: Math.round(gap * L / 576 * 10) / 10, gap: gap };
+  }
   var STEP_LABEL = { add: 'Add SO2', test: 'Test or check', hold: 'Hold', decide: 'Owner or winemaker decides', ok: 'Done or at target', unk: 'Not on file', client: 'Client or other winemaker' };
   var STEP_ORDER = ['add', 'test', 'decide', 'hold', 'ok', 'unk'];
   function short(st) {
@@ -62,6 +85,8 @@
       o.act = sr ? sr.action : (st ? st.action : '');
       o.g = sr ? sr.g : (st ? st.so2_grams : null);
       if (o.g === '' || o.g === undefined) o.g = null;
+      o.target = sr ? sr.target : (st && st.target_free_so2_ppm != null && st.target_free_so2_ppm !== '' ? Number(st.target_free_so2_ppm) : null);
+      o.last = sr ? sr.last : null; o.est = sr ? sr.est : null; o.tab = sr ? sr.tab : null; o.L = sr && sr.L ? sr.L : 225;
       return o;
     });
   }
@@ -191,6 +216,12 @@
     var sLs = React.useState('placed'), labelSet = sLs[0], setLabelSet = sLs[1];
     var sLz = React.useState('small'), labelSize = sLz[0], setLabelSize = sLz[1];
     var sHi = React.useState(null), selHist = sHi[0], setSelHist = sHi[1];
+    var sFm = React.useState(so2Form()), form = sFm[0], setForm = sFm[1];
+    var sFs = React.useState(''), fs = sFs[0], setFs = sFs[1];
+    var sAg = React.useState(''), addG = sAg[0], setAddG = sAg[1];
+    var sAd = React.useState(true), adv = sAd[0], setAdv = sAd[1];
+    React.useEffect(function () { setFs(''); setAddG(''); }, [sel && sel.id]);
+    React.useEffect(function () { if (D && sel) { var n = D.filter(function (x) { return x.id === sel.id; })[0]; if (n && n !== sel) setSel(n); } }, [D]);
     React.useEffect(function () {
       var f = window.CM_MAP_FOCUS; if (!D || !f) return;
       window.CM_MAP_FOCUS = null;
@@ -215,7 +246,7 @@
     }, [tick, moveMode]);
     var runMove = function (fn, ok) {
       setBusy(true); setErr(''); setMsg('');
-      Promise.resolve().then(fn).then(function () { setMsg(ok); setPick(null); setTarget(null); setNote(''); setSel(null); setTick(tick + 1); })
+      Promise.resolve().then(fn).then(function () { setMsg(ok); setPick(null); setTarget(null); setNote(''); setSel(null); setQ(''); setTick(tick + 1); })
         .catch(function (e) { var m = e.message || String(e); setErr(/^occupied:/.test(m) ? 'Spot is taken by ' + m.split(':')[1] + '.' : m); })
         .then(function () { setBusy(false); });
     };
@@ -239,11 +270,11 @@
       var isPick = pick && pick.id === p.id;
       var click = function () {
         if (moveMode) { if (pick && !isPick) chooseSlot(slot || p); else { setPick(isPick ? null : p); setTarget(null); setErr(''); setMsg(''); } return; }
-        setSel(isSel ? null : p);
+        setQ(''); setSel(isSel ? null : p);
       };
       return cmE('div', Object.assign({ key: key, onClick: click, title: p.barrel || p.label, draggable: !!(moveMode && p.barrel),
         onDragStart: function (e) { if (!moveMode) return; try { e.dataTransfer.setData('text/plain', String(p.id)); } catch (x) {} setPick(p); setTarget(null); },
-        style: { minHeight: 34, background: fillOf(p, by, DARK), borderRadius: 6, padding: '3px 4px', cursor: moveMode ? 'grab' : 'pointer', textAlign: 'center', lineHeight: 1.15, opacity: isPick ? 0.55 : 1,
+        style: { minHeight: 34, background: fillOf(p, by, DARK), borderRadius: 6, padding: '3px 4px', cursor: moveMode ? 'grab' : 'pointer', textAlign: 'center', lineHeight: 1.15, opacity: isPick ? 0.55 : 1, userSelect: 'none', WebkitUserSelect: 'none', WebkitTapHighlightColor: 'transparent', WebkitTouchCallout: 'none',
           border: '2px solid ' + (isPick || isTarget(slot) ? C.accentLight : hit(p) ? C.accentLight : isSel ? '#fff' : p.flag ? C.orange : 'transparent') } }, slot ? dropProps(slot) : {}),
         cmE('div', { style: { fontWeight: 800, fontSize: 12 } }, p.barrel ? (p.vintage === 2026 ? p.barrel.slice(3) : p.barrel) : p.label),
         p.barrel ? cmE('div', { style: { fontSize: 9, color: '#ddd' } }, by === 'step' ? STEP_LABEL[p.step] : (p.vintage === 2025 && p.area === 'Rows' ? '2025' : short(p.st))) : null);
@@ -259,7 +290,7 @@
           cmE('span', { style: { minWidth: 70, fontWeight: 700 } }, p.vintage === 2026 ? p.barrel : '25-' + p.barrel),
           cmE('span', { style: { minWidth: 150, color: C.accentLight } }, where(p)),
           cmE('span', { style: { flex: '1 1 160px' } }, lotName(p).replace(/^\d{4} /, '')),
-          cmE('span', { style: { flex: '1 1 160px', color: C.textDim } }, p.act || ''));
+          cmE('span', { style: { flex: '1 1 160px', color: C.textDim } }, (p.act || '') + (p.g != null && Number(p.g) > 0 ? ' · add ' + addText(p, form) : '')));
       }));
     } else if (view === 'lots') {
       body = cmE('div', null, cmMapLots(D).filter(function (g) { return !q || g.lot.toLowerCase().indexOf(q.toLowerCase()) > -1; }).map(function (g) {
@@ -272,7 +303,7 @@
           g.barrels.map(function (p) {
             return cmE('div', { key: p.id, style: { display: 'flex', gap: 8, fontSize: 12, padding: '3px 0', borderBottom: '1px solid ' + C.cardBorder, flexWrap: 'wrap' } },
               cmE('span', { style: { minWidth: 150, color: C.accentLight } }, where(p)), cmE('span', { style: { minWidth: 60, fontWeight: 700 } }, p.barrel),
-              cmE('span', { style: { flex: '1 1 200px' } }, p.act || ''), p.g != null ? cmE('span', { style: { fontWeight: 700 } }, p.g + ' g') : null);
+              cmE('span', { style: { flex: '1 1 200px' } }, p.act || ''), p.target != null ? cmE('span', { style: { color: C.textDim } }, 'target ' + p.target + ' ppm') : null, p.g != null ? cmE('span', { style: { fontWeight: 700 } }, addText(p, form) || (p.g + ' g')) : null);
           }));
       }));
     } else {
@@ -349,11 +380,58 @@
             cmE('span', { style: { flex: 1 } }, MV.describe(m) + (m.moved_by ? ' · ' + m.moved_by : '') + (m.undone_at ? ' (undone)' : '')),
             !m.undone_at ? cmE('span', { onClick: function () { runMove(function () { return MV.undo(m.id); }, 'Undone.'); }, style: { color: C.accentLight, cursor: 'pointer' } }, 'Undo') : null);
         })) : null) : null;
+    var fsN = fs === '' ? null : Number(fs);
+    var eff = sel && sel.barrel ? (fsN != null && !isNaN(fsN) && recFromReading(sel, fsN) ? recFromReading(sel, fsN) : { g: sel.g, tab: sel.tab }) : null;
+    var amountLabel = function (via) {
+      if (addG !== '') return addG + ' g' + (via === 'kms' ? ' KMS' : ' tablets');
+      if (eff && Number(eff.g) > 0) return via === 'kms' ? (eff.kms != null ? eff.kms : kmsFromTabGrams(eff.g)) + ' g KMS' : (eff.tab ? eff.tab + ' tablets' : eff.g + ' g tablets');
+      return fsN != null ? 'reading only' : 'nothing to add';
+    };
+    var confirmAdd = function (via) {
+      if (!sel || !sel.barrel || busy) return;
+      var gIn = addG === '' ? null : Number(addG);
+      if (gIn != null && (isNaN(gIn) || gIn <= 0 || gIn > 400)) { setErr('Enter grams as a number up to 400.'); return; }
+      if (fsN != null && (isNaN(fsN) || fsN < 0 || fsN > 150)) { setErr('Free SO2 should be 0 to 150 ppm.'); return; }
+      var tabG = gIn != null ? (via === 'kms' ? Math.round(gIn * 576 / 495 * 10) / 10 : gIn) : (eff && Number(eff.g) > 0 ? Number(eff.g) : null);
+      if (tabG == null && fsN == null) { setErr('Nothing to confirm. Enter a reading or the grams added.'); return; }
+      var cur = sel;
+      var nxt = null;
+      if (adv) { var todo = D.filter(function (x) { return x.barrel && x.step === 'add' && x.id !== cur.id; }).sort(function (a, b) { return walkKey(a) < walkKey(b) ? -1 : 1; }); nxt = todo.filter(function (x) { return walkKey(x) > walkKey(cur); })[0] || todo[0] || null; }
+      setBusy(true); setErr(''); setMsg('');
+      Promise.resolve().then(async function () {
+        var org = cur.organization_id || await cmOrg(); var day = today(); var recs = [];
+        if (fsN != null) recs.push({ organization_id: org, vintage: cur.vintage, barrel: cur.barrel, action_type: 'free_so2', done_on: day, grams: null, value: fsN, note: null });
+        if (tabG != null) recs.push({ organization_id: org, vintage: cur.vintage, barrel: cur.barrel, action_type: 'so2', done_on: day, grams: tabG, value: null, note: via === 'kms' ? (gIn != null ? gIn : (eff && eff.kms != null ? eff.kms : kmsFromTabGrams(tabG))) + ' g KMS powder' : null });
+        var res = await supa.schema('cellarmate').from('cellar_actions').insert(recs).select('id');
+        if (res.error) throw new Error(res.error.message);
+        if (via !== 'kms' && tabG != null && res.data && typeof cmLogTabletUses === 'function') {
+          var i = recs.length - 1;
+          await cmLogTabletUses([Object.assign({}, recs[i], { id: res.data[i] && res.data[i].id, tab: gIn == null && eff ? eff.tab : null })]);
+        }
+        delete CM_CACHE.cellar_actions;
+        setMsg('Logged ' + (cur.vintage === 2025 ? '25-' : '') + cur.barrel + ': ' + [fsN != null ? 'free SO2 ' + fsN + ' ppm' : null, tabG != null ? amountLabel(via) : null].filter(Boolean).join(', ') + (nxt ? '. Next: ' + nxt.barrel : '.'));
+        setFs(''); setAddG(''); setTick(tick + 1);
+        if (nxt) { setArea(nxt.area === 'Pallets' ? 'Pallets' : nxt.area); setSel(nxt); } else setSel(null);
+      }).catch(function (e) { setErr(e.message || String(e)); }).then(function () { setBusy(false); });
+    };
+    var quick = sel && sel.barrel ? cmE('div', { style: { marginTop: 8, borderTop: '1px solid ' + C.cardBorder, paddingTop: 8 } },
+      cmE('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' } },
+        cmE('input', { value: fs, onChange: function (e) { setFs(e.target.value.trim()); }, inputMode: 'decimal', placeholder: 'Free SO2 now (ppm)', style: Object.assign({}, cmSel, { width: 150 }) }),
+        cmE('input', { value: addG, onChange: function (e) { setAddG(e.target.value.trim()); }, inputMode: 'decimal', placeholder: 'Added (g), if different', style: Object.assign({}, cmSel, { width: 160 }) })),
+      eff && fsN != null && eff.gap != null ? cmE('div', { style: { fontSize: 12, marginTop: 4, fontWeight: 700 } }, eff.gap <= 0 ? 'At or above the ' + sel.target + ' ppm target. Nothing to add.' : 'To reach ' + sel.target + ' ppm: ' + addText(eff, form)) : null,
+      cmE('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' } },
+        form !== 'kms' ? btn((busy ? 'Saving...' : 'Confirm: ' + amountLabel('tabs')), function () { confirmAdd('tabs'); }, true, busy) : null,
+        form !== 'tabs' ? btn((busy ? 'Saving...' : 'Confirm: ' + amountLabel('kms')), function () { confirmAdd('kms'); }, form === 'kms', busy) : null,
+        cmE('label', { style: { fontSize: 11, color: C.textDim, display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' } }, cmE('input', { type: 'checkbox', checked: adv, onChange: function (e) { setAdv(e.target.checked); } }), 'Go to next barrel needing SO2')),
+      msg ? cmE('div', { style: { fontSize: 12, color: C.accentLight, marginTop: 4 } }, msg) : null) : null;
     var detail = sel && view === 'layout' && !moveMode ? cmE('div', { style: Object.assign({}, card, { borderColor: C.accentLight }) },
       cmE('div', { style: { fontWeight: 800 } }, sel.barrel ? (sel.vintage + ' barrel ' + sel.barrel) : sel.label),
       cmE('div', { style: small }, where(sel)),
       sel.st ? cmE('div', { style: { fontSize: 12, marginTop: 4 } }, [sel.st.lot_name || sel.st.vineyard, sel.st.owner, sel.st.wine_type, sel.st.ph_latest ? 'pH ' + sel.st.ph_latest : null].filter(Boolean).join(' · ')) : null,
-      sel.act ? cmE('div', { style: { fontSize: 12, color: C.accentLight, marginTop: 2 } }, sel.act + (sel.g != null ? ' (' + sel.g + ' g)' : '')) : null,
+      sel.barrel && (sel.target != null || sel.last != null || sel.est != null) ? cmE('div', { style: { fontSize: 12, marginTop: 4 } }, 'Free SO2: ' + [sel.last != null ? 'last ' + sel.last + ' ppm' : null, sel.est != null ? 'est. now ' + sel.est + ' ppm' : null, sel.target != null ? 'recommended ' + sel.target + ' ppm' : null].filter(Boolean).join(' · ')) : null,
+      sel.act ? cmE('div', { style: { fontSize: 12, color: C.accentLight, marginTop: 2 } }, sel.act) : null,
+      sel.g != null && Number(sel.g) > 0 ? cmE('div', { style: { fontSize: 12, fontWeight: 700, marginTop: 2 } }, 'SO2 to add: ' + addText(sel, form)) : null,
+      quick,
       sel.note ? cmE('div', { style: small }, 'Map note: ' + sel.note) : null,
       sel.flag ? cmE('div', { style: { fontSize: 12, color: C.orange } }, sel.flag) : null,
       sel.barrel ? cmE('div', { style: { marginTop: 6 } }, cmE('div', { style: Object.assign({}, small, { fontWeight: 700 }) }, 'History'),
@@ -384,14 +462,17 @@
     return cmE('div', null,
       err ? cmE('div', { style: { color: C.red, fontSize: 12 } }, err) : null,
       cmE('div', { style: { display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' } },
-        cmE('div', { style: { flex: '3 1 340px' } }, cmSeg([['layout', 'Layout'], ['list', 'List'], ['lots', 'By wine'], ['work', 'Work list']], view, function (v) { setView(v); setSel(null); })),
+        cmE('div', { style: { flex: '3 1 340px' } }, cmSeg([['layout', 'Layout'], ['list', 'List'], ['lots', 'By wine'], ['work', 'Work list']], view, function (v) { setView(v); setSel(null); setQ(''); setPick(null); setTarget(null); })),
         cmE('input', { value: q, onChange: function (e) { setQ(e.target.value.trim()); }, placeholder: view === 'lots' ? 'Find wine' : 'Find barrel', style: Object.assign({}, cmSel, { flex: '1 1 120px' }) }),
+        (q || sel || pick || target) ? cmE('button', { onClick: function () { setQ(''); setSel(null); setPick(null); setTarget(null); setMsg(''); setErr(''); }, style: { background: C.card, color: C.accentLight, border: '1px solid ' + C.cardBorder, borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontWeight: 700 } }, 'Clear highlight') : null,
         canMove && view === 'layout' ? cmE('button', { onClick: function () { setMoveMode(!moveMode); setPick(null); setTarget(null); setErr(''); setMsg(''); setSel(null); }, style: { background: moveMode ? C.orange : C.card, color: moveMode ? '#fff' : C.accentLight, border: '1px solid ' + (moveMode ? C.orange : C.cardBorder), borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, moveMode ? 'Done moving' : 'Move barrels') : null,
+        cmE('select', { value: form, title: 'How SO2 additions are shown', onChange: function (e) { setForm(e.target.value); try { localStorage.setItem('cm_so2_form', e.target.value); } catch (x) {} }, style: Object.assign({}, cmSel, { flex: '1 1 150px' }) },
+          [['both', 'SO2 add: tablets or KMS'], ['tabs', 'SO2 add: tablets'], ['kms', 'SO2 add: KMS powder']].map(function (o) { return cmE('option', { key: o[0], value: o[0] }, o[1]); })),
         cmE('button', { onClick: function () { printView(view, D, by); }, style: { background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, 'Print'),
         LB ? cmE('button', { onClick: function () { setShowLabels(!showLabels); }, style: { background: showLabels ? C.accentLight : C.card, color: showLabels ? '#fff' : C.accentLight, border: '1px solid ' + C.cardBorder, borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontWeight: 700 } }, 'Labels') : null),
       msg ? cmE('div', { style: { color: C.green || '#22c55e', fontSize: 12, marginBottom: 6, fontWeight: 700 } }, msg) : null,
       view === 'layout' ? cmE('div', { style: { display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' } },
-        cmE('div', { style: { flex: '2 1 260px' } }, cmSeg([['EBS', 'EBS racks'], ['Rows', 'Floor rows'], ['Pallets', 'Pallets']], area, function (a) { setArea(a); setSel(null); })),
+        cmE('div', { style: { flex: '2 1 260px' } }, cmSeg([['EBS', 'EBS racks'], ['Rows', 'Floor rows'], ['Pallets', 'Pallets']], area, function (a) { setArea(a); setSel(null); setQ(''); setPick(null); setTarget(null); })),
         cmE('div', { style: { flex: '1 1 200px' } }, cmSeg([['wine', 'Color: wine'], ['step', 'Color: next step']], by, setBy))) : null,
       view === 'layout' ? cmE('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 } }, legendKeys.map(function (k) {
         return cmE('span', { key: k, style: { fontSize: 10, background: DARK[k], borderRadius: 4, padding: '2px 6px' } }, by === 'step' ? STEP_LABEL[k] : legendNames[k]);
@@ -401,7 +482,7 @@
       labelPanel, movePanel, detail, body);
   }
 
-  window.cmMapIndex = cmMapIndex; window.cmMapLots = cmMapLots; window.cmMapWork = cmMapWork; window.cmMapPrintHtml = cmMapPrintHtml;
+  window.cmMapIndex = cmMapIndex; window.cmMapLots = cmMapLots; window.cmMapWork = cmMapWork; window.cmMapPrintHtml = cmMapPrintHtml; window.cmMapAddText = addText; window.cmMapKms = kmsFromTabGrams; window.cmMapRecFromReading = recFromReading;
   window.CM_MODULES = window.CM_MODULES || {};
   window.CM_MODULES.map = { label: 'Map', Component: CmBarrelMap, order: 47 };
 })();
