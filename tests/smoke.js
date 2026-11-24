@@ -451,6 +451,29 @@ window.cmSmoke = async function(opts) {
   ok('9/19/2026 berry samples loaded with page links', !bl9.error && (bl9.data || []).length === 6 && (bl9.data || []).every(function(b) { return (b.photo_links || []).length === 1; }), (bl9.data || []).length);
   const fr9 = await dbf.from('fermenters').select('fermenter,so2_at_crush_ppm').eq('vintage', 2026).eq('fermenter', 'F14');
   ok('crush SO2 from the 9/18/2026 page on F14', !fr9.error && (fr9.data || []).length === 1 && Number(fr9.data[0].so2_at_crush_ppm) === 35);
+  /* 1af. round 10: offline round trip (read saved copy, queue a change, sync it) */
+  {
+    const off = {};
+    try {
+      const odb = supa.schema('cellarmate');
+      await odb.from('questions').select('*').order('id').range(0, 999);
+      await odb.from('photo_review').select('*').order('id').range(0, 999);
+      localStorage.setItem('cm_force_offline', '1');
+      const rq = await odb.from('questions').select('*').order('id').range(0, 999);
+      const rp = await odb.from('photo_review').select('*').order('id').range(0, 999);
+      off.readQ = !rq.error && (rq.data || []).length > 0; off.readP = !rp.error && (rp.data || []).length > 0;
+      const oorg = await cmOrg();
+      const w = await odb.from('questions').insert({organization_id: oorg, sort: 9998, topic: 'offline smoke', question: 'offline smoke test row', status: 'open'}).select();
+      off.queued = !w.error && CM_NET.queue.length >= 1;
+      const back = await odb.from('questions').select('*').order('id').range(0, 999);
+      off.seen = (back.data || []).some(function(r) { return r.sort === 9998; });
+    } catch (e) { off.err = e.message; }
+    localStorage.removeItem('cm_force_offline');
+    try { await cmSync(); const c = await supa.schema('cellarmate').from('questions').select('id').eq('sort', 9998); off.synced = (c.data || []).length === 1 && !CM_NET.queue.length; await supa.schema('cellarmate').from('questions').delete().eq('sort', 9998); } catch (e) { off.err2 = e.message; }
+    ok('offline: saved data readable with no connection', off.readQ && off.readP, JSON.stringify(off));
+    ok('offline: change made with no connection is queued and shown', off.queued && off.seen, JSON.stringify(off));
+    ok('offline: queued change syncs when back online', off.synced && !CM_NET.failed.length, JSON.stringify(off));
+  }
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
