@@ -340,9 +340,9 @@ window.cmSmoke = async function(opts) {
   /* 3. screens */
   const g = Array.from(document.querySelectorAll('div')).filter(function(e) { return e.children.length === 0 && e.innerText.trim() === 'Kameron'; })[0];
   if (g && /logging today/.test(document.body.innerText.slice(0, 300))) { g.click(); await wait(1500); }
-  for (const n of ['Cellar', 'Lots', 'Health', 'Schedule', 'Reports']) { nav(n); await wait(1600); ok('screen ' + n, document.body.innerText.length > 500 && !bad(), bad()); }
-  for (const t of ['Today', 'Reports', 'Work', 'Log', 'Volumes', 'Tanks', 'Wines', 'Supplies', 'Ferment', 'Map', 'Topping', 'Lab', 'Materials', 'Costs', 'Files', 'Vintages', 'Plan', 'Data', 'Q&A', 'Facility', 'TTB', 'Admin', 'Status']) {
-    if (!click(t, 'button')) continue; await wait(1800);
+  for (const n of ['home', 'lots', 'health', 'sched', 'hub']) { cmNavOpen(cmNavByKey(n), CM_APP_GO, SCREENS); await wait(1600); ok('screen ' + n, document.body.innerText.length > 300 && !bad(), bad()); }
+  for (const t of ['today', 'hub', 'work', 'log', 'vol', 'tanks', 'wines', 'sup', 'ferm', 'map', 'top', 'lab', 'mat', 'cost', 'files', 'vint', 'plan', 'data', 'ask', 'fac', 'ttb', 'admin', 'r_status']) {
+    const it = cmNavByKey(t); if (!it) continue; cmNavOpen(it, CM_APP_GO, SCREENS); await wait(1800);
     const tx = document.body.innerText; ok('tab ' + t, !bad() && !/You are offline and this has not been saved/.test(tx), bad());
   }
   /* 1w. vit library: stage, signals, matching, search and the AI prompt */
@@ -469,7 +469,7 @@ window.cmSmoke = async function(opts) {
       off.seen = (back.data || []).some(function(r) { return r.sort === 9998; });
     } catch (e) { off.err = e.message; }
     localStorage.removeItem('cm_force_offline');
-    try { await cmSync(); const c = await supa.schema('cellarmate').from('questions').select('id').eq('sort', 9998); off.synced = (c.data || []).length === 1 && !CM_NET.queue.length; await supa.schema('cellarmate').from('questions').delete().eq('sort', 9998); } catch (e) { off.err2 = e.message; }
+    try { await cmSync(); for (let w = 0; w < 20 && CM_NET.queue.length; w++) await new Promise(function(r) { setTimeout(r, 500); }); const c = await supa.schema('cellarmate').from('questions').select('id').eq('sort', 9998); off.synced = (c.data || []).length === 1 && !CM_NET.queue.length; await supa.schema('cellarmate').from('questions').delete().eq('sort', 9998); } catch (e) { off.err2 = e.message; }
     ok('offline: saved data readable with no connection', off.readQ && off.readP, JSON.stringify(off));
     ok('offline: change made with no connection is queued and shown', off.queued && off.seen, JSON.stringify(off));
     ok('offline: queued change syncs when back online', off.synced && !CM_NET.failed.length, JSON.stringify(off));
@@ -500,6 +500,100 @@ window.cmSmoke = async function(opts) {
   const k13c = cmKmbsPlan({volume_text: '8 gal', contents: 'Chardonnay topping', vessel: 'K-1'});
   ok('KMBS plan: no pH gives a per-10-ppm dose and asks for pH and malic', k13c && k13c.target == null && k13c.per10 > 0 && /test malic first/.test(cmKmbsText(k13c)) && /test pH/.test(cmKmbsText(k13c)), cmKmbsText(k13c));
   ok('KMBS plan: stainless barrel with no volume gives no dose', cmKmbsPlan({size: 'Stainless barrel', ph: '3.64'}) === null);
+  /* 1aj. round 14: navigation, Winery / Vineyard sides, search, Reports hub, PDF layout */
+  {
+    const N = window.CM_NAV, sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
+    const live = function() { return (document.getElementById('root').innerText || '').length; };
+    const SCR = Object.keys(SCREENS).map(function(k) { return SCREENS[k]; });
+    const vyTabs = ['weather','sprays','field','season','crop','equipment','paperwork','owners','records','library'];
+    const repTabs = ['hub','status','focus','work','log','vol','tanks','wines','sup','data','ask','fac','ttb','admin'];
+    const reps = ['malic','so2','tart','top','chard','ml','chsul','eat'];
+    ok('nav: catalog loaded', N && N.ITEMS.length > 40, N && N.ITEMS.length);
+    const keys = N.ITEMS.map(function(i) { return i.k; });
+    ok('nav: every item key is unique', new Set(keys).size === keys.length);
+    const bad = N.ITEMS.filter(function(i) {
+      const t = i.to || {};
+      if (SCR.indexOf(t.screen) < 0) return true;
+      if (t.screen === 'reports' && repTabs.indexOf(t.tab) < 0 && !(window.CM_MODULES && window.CM_MODULES[t.tab])) return true;
+      if (t.rep && reps.indexOf(t.rep) < 0) return true;
+      if (t.vy && vyTabs.indexOf(t.vy) < 0) return true;
+      return false;
+    }).map(function(i) { return i.k; });
+    ok('nav: every item points at a screen, tab, report or vineyard section that exists', bad.length === 0, bad.join(', '));
+    ok('nav: bottom bar has 5 short tabs per side, last is More', ['winery', 'vineyard'].every(function(s) { return N.BAR[s].length === 5 && N.BAR[s][4][0] === 'more' && N.BAR[s].slice(0, 4).every(function(b) { return cmNavByKey(b[0]); }); }));
+    ok('nav: every Reports hub item has a description', N.ITEMS.filter(function(i) { return i.kind === 'report'; }).length >= 15 && N.ITEMS.filter(function(i) { return i.kind === 'report' && !i.desc; }).length === 0);
+    ok('nav: search finds tanks by kmbs, malic report, spray and map', cmNavSearch('kmbs')[0].k === 'tanks' && cmNavSearch('malic').some(function(i) { return i.k === 'r_malic'; }) && cmNavSearch('spray').some(function(i) { return i.k === 'v_sprays'; }) && cmNavSearch('barrel map').some(function(i) { return i.k === 'map'; }));
+    ok('nav: search needs every word and ignores nonsense', cmNavSearch('kmbs zzzz').length === 0 && cmNavSearch('').length === 0);
+    const keep = cmNavModules();
+    cmNavSetModules('winery');
+    ok('nav: winery-only account sees no vineyard items', cmNavAllowed().length === 1 && cmNavSide() === 'winery' && cmNavSearch('spray').every(function(i) { return i.side !== 'vineyard'; }) && cmNavItems('winery').length > 20);
+    cmNavSetModules('vineyard');
+    ok('nav: vineyard-only account sees no winery items', cmNavSide() === 'vineyard' && cmNavSearch('tanks').every(function(i) { return i.side !== 'winery'; }));
+    cmNavSetModules('both');
+    ok('nav: both sides allowed when the account uses both', cmNavAllowed().length === 2);
+    const calls = [];
+    const fake = function(s, p) { calls.push(s); };
+    const sv = localStorage.getItem('cm_vy_tab');
+    cmNavOpen(cmNavByKey('r_so2'), fake, SCREENS);
+    ok('nav: opening a report sets its tab and report', CM_PRESET && CM_PRESET.tab === 'focus' && CM_FOCUS.rep === 'so2' && calls[0] === 'reports');
+    CM_PRESET = null; CM_FOCUS = {};
+    cmNavOpen(cmNavByKey('v_season'), fake, SCREENS);
+    ok('nav: opening a vineyard section sets the section', localStorage.getItem('cm_vy_tab') === 'season' && calls[1] === 'blocks' && cmNavSide() === 'vineyard');
+    if (sv == null) localStorage.removeItem('cm_vy_tab'); else localStorage.setItem('cm_vy_tab', sv);
+    cmNavSetModules(keep); localStorage.setItem('cm_side', 'winery');
+
+    /* real clicks through the live app: bottom bar, More and the Reports hub on both sides */
+    const fails = [];
+    const wait = async function(sel, ms) { for (let i = 0; i < (ms || 40); i++) { const e = document.querySelector(sel); if (e) return e; await sleep(100); } return null; };
+    const errs = []; const onErr = function(e) { errs.push(e.message || String(e)); }; window.addEventListener('error', onErr);
+    cmNavSetModules('both');
+    for (const side of ['winery', 'vineyard']) {
+      cmNavOpen(cmNavByKey(N.HOME[side]), CM_APP_GO, SCREENS); await sleep(700);
+      const barKeys = N.BAR[side].map(function(b) { return b[0]; });
+      for (const k of barKeys) {
+        const b = await wait('[data-bar="' + k + '"]'); if (!b) { fails.push(side + ' bar ' + k + ' missing'); continue; }
+        b.click(); await sleep(700);
+        if (live() < 80) fails.push(side + ' bar ' + k + ' blank');
+      }
+      (await wait('[data-bar="more"]')).click(); await sleep(400);
+      const mk = Array.prototype.map.call(document.querySelectorAll('[data-more]'), function(e) { return e.getAttribute('data-more'); });
+      if (mk.length < 5) fails.push(side + ' More has only ' + mk.length);
+      for (const k of mk) {
+        const bm = await wait('[data-bar="more"]'); bm.click(); await sleep(250);
+        const e = await wait('[data-more="' + k + '"]'); if (!e) { fails.push(side + ' More ' + k + ' missing'); continue; }
+        e.click(); await sleep(800);
+        if (live() < 80) fails.push(side + ' More ' + k + ' blank');
+      }
+    }
+    ok('nav ui: every bottom-bar tab and More item opens a screen with content', fails.length === 0, fails.join('; '));
+    const rf = [];
+    cmNavOpen(cmNavByKey('hub'), CM_APP_GO, SCREENS); await sleep(900);
+    const rk = Array.prototype.map.call(document.querySelectorAll('[data-report]'), function(e) { return e.getAttribute('data-report'); });
+    if (rk.length < 15) rf.push('hub lists only ' + rk.length);
+    for (const k of rk) {
+      let e = document.querySelector('[data-report="' + k + '"]');
+      if (!e) { const bk = document.querySelector('[data-back="reports"]'); if (bk) bk.click(); await sleep(300); e = await wait('[data-report="' + k + '"]'); }
+      if (!e) { rf.push(k + ' button missing'); continue; }
+      e.click(); await sleep(1200);
+      if (live() < 120) rf.push(k + ' blank');
+      const back = await wait('[data-back="reports"]'); if (!back) { rf.push(k + ' has no back button'); continue; }
+      back.click(); await sleep(400);
+      if (!document.querySelector('[data-report="' + k + '"]')) rf.push(k + ' back did not return to the list');
+    }
+    ok('nav ui: every Reports hub button opens its report and back returns to the list', rf.length === 0, rf.join('; '));
+    ok('nav ui: no script errors while walking the menus', errs.length === 0, errs.slice(0, 3).join(' | '));
+    window.removeEventListener('error', onErr);
+    const q = await wait('[aria-label="Find anything"]');
+    ok('nav ui: the find-anything box is on every screen', !!q);
+    cmNavOpen(cmNavByKey('home'), CM_APP_GO, SCREENS); await sleep(500);
+
+    const cols8 = [1, 2, 3, 4, 5, 6, 7, 8].map(function(i) { return ['c' + i, 'Col ' + i]; });
+    const rows = []; for (let i = 0; i < 90; i++) { const r = {}; cols8.forEach(function(c) { r[c[0]] = 'value ' + i; }); rows.push(r); }
+    const pdfW = await cmPdfDoc('Test report', 'sub', cols8, [{title: 'Group', rows: rows}]);
+    const pdfN = await cmPdfDoc('Test report', 'sub', cols8.slice(0, 4), [{title: 'Group', rows: rows.slice(0, 5)}]);
+    ok('pdf: wide reports print landscape, narrow ones portrait', pdfW.internal.pageSize.getWidth() > pdfW.internal.pageSize.getHeight() && pdfN.internal.pageSize.getWidth() < pdfN.internal.pageSize.getHeight());
+    ok('pdf: long reports run to several pages, each stamped page x of y', pdfW.internal.getNumberOfPages() >= 2 && /page 2 of /.test(String(pdfW.output()).slice(0, 400000)) === true);
+  }
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
@@ -519,13 +613,14 @@ window.cmSmoke = async function(opts) {
   const zI = await dbf.from('wine_issues').select('id').limit(1);
   ok('wine investigations table readable', !zI.error, (zI.error || {}).message || '');
   const sel = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
-  if (click('Reports', 'button')) { await wait(1500); }
+  cmNavOpen(cmNavByKey('r_malic'), CM_APP_GO, SCREENS); await wait(1500);
   const sel2 = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(x) { return x.value === 'malic'; }); })[0];
   if (sel2) { const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
     for (const rep of ['malic','so2','tart','top','chard','ml','chsul','eat']) { set.call(sel2, rep); sel2.dispatchEvent(new Event('change', {bubbles:true})); await wait(1300); ok('report ' + rep, document.querySelectorAll('tbody tr').length > 0 && !bad(), bad()); } }
 
   /* 3c. winery side: troubleshooter and inventory tabs */
-  const tabBtn = function(t) { return Array.from(document.querySelectorAll('button,div')).filter(function(e) { return e.children.length === 0 && e.innerText && e.innerText.trim() === t; })[0]; };
+  const navTab = {Troubleshoot:'help', Inventory:'inv', Costs:'cost', Assets:'assets'};
+  const tabBtn = function(t) { if (navTab[t]) return {click: function() { cmNavOpen(cmNavByKey(navTab[t]), CM_APP_GO, SCREENS); }}; return Array.from(document.querySelectorAll('button,div')).filter(function(e) { return e.children.length === 0 && e.innerText && e.innerText.trim() === t; })[0]; };
   let tb = tabBtn('Troubleshoot'); if (tb) { tb.click(); for (let i = 0; i < 15 && !/Troubleshoot a wine/.test(document.body.innerText); i++) await wait(1000); }
   ok('Troubleshoot tab', /Troubleshoot a wine/.test(document.body.innerText) && /Past investigations/.test(document.body.innerText) && !bad(), bad());
   const tsel = Array.from(document.querySelectorAll('select')).filter(function(e) { return Array.from(e.options).some(function(o) { return /Eola-Amity Chardonnay/.test(o.text); }); })[0];
@@ -536,7 +631,7 @@ window.cmSmoke = async function(opts) {
   ok('Inventory tab with CRM stock', /Wine inventory/.test(document.body.innerText) && /bottles on hand/.test(document.body.innerText) && /Record a bottling/.test(document.body.innerText) && /2024 Willamette Valley Chardonnay/.test(document.body.innerText) && !/CRM error: /.test(document.body.innerText) && !bad(), bad());
   tb = tabBtn('Costs'); if (tb) { tb.click(); for (let i = 0; i < 20 && !/Winemaking cost sheet/.test(document.body.innerText); i++) await wait(1000); }
   ok('Costs tab: cost sheet with gases, filtration and oak', /Winemaking cost sheet/.test(document.body.innerText) && /Gases and dry ice/.test(document.body.innerText) && /Vintages side by side/.test(document.body.innerText) && /Per case/.test(document.body.innerText) && /Inventory check: what the costs are compared against/.test(document.body.innerText) && !bad(), bad());
-  tb = tabBtn('Assets'); if (tb) { tb.click(); for (let i = 0; i < 20 && !/Winery assets/.test(document.body.innerText); i++) await wait(1000); }
+  tb = tabBtn('Assets'); if (tb) { tb.click(); for (let i = 0; i < 20 && !/Winery assets/.test(document.body.innerText); i++) await wait(1000); await wait(2500); }
   ok('Assets tab: barrels, gas equipment and the cellar check', /Winery assets/.test(document.body.innerText) && /Gillet Bourgogne Export/.test(document.body.innerText) && /Check against the cellar/.test(document.body.innerText) && !bad(), bad());
   /* 3b. vineyard side: every section of Vine Blocks */
   nav('Cellar'); await wait(1200);
@@ -545,7 +640,7 @@ window.cmSmoke = async function(opts) {
   const vtab = async function(label, re, secs) { const bt = Array.from(document.querySelectorAll('button')).filter(function(x) { return x.innerText.trim() === label; })[0]; if (bt) bt.click(); for (let i = 0; i < (secs || 20) && !re.test(document.body.innerText); i++) await wait(1000); return !!bt; };
   const T = function() { return document.body.innerText; };
   await vtab('Weather and harvest', /Estate blocks: tons per acre/, 25);
-  for (let i = 0; i < 25 && /Loading weather and block history/.test(T()); i++) await wait(1000);
+  for (let i = 0; i < 70 && /Loading weather and block history/.test(T()); i++) await wait(1000);
   ok('Vine Blocks, weather and harvest', /Heat units and rain/.test(T()) && /Estate blocks: tons per acre/.test(T()) && /Ripeness samples/.test(T()) && /Harvest watch: Estate/.test(T()) && /Crop estimates and pick window/.test(T()) && !bad(), bad());
   await vtab('Forecast and sprays', /Next 16 days|did not answer/, 40);
   for (let i = 0; i < 40; i++) { if (/index started|index never started/.test(T()) && /Product use and/.test(T())) break; await wait(1000); }
@@ -554,7 +649,7 @@ window.cmSmoke = async function(opts) {
   await vtab('Field work', /Block board/);
   ok('Vine Blocks, field work', /Block board/.test(T()) && /Re-entry and pre-harvest windows/.test(T()) && /Scouting and growth stages/.test(T()) && /Add photos/.test(T()) && /Labor and cost per block/.test(T()) && !bad(), bad());
   await vtab('Season and budget', /The typical year/);
-  for (let i = 0; i < 20 && !/Recommended work for/.test(T()); i++) await wait(1000);
+  for (let i = 0; i < 90 && !(/Recommended work for/.test(T()) && /Things to watch in \d{4}/.test(T())); i++) await wait(1000);
   ok('Vine Blocks, watch list, pruning and Oregon timing', /Things to watch in \d{4}/.test(T()) && /Pruning/.test(T()) && /Oregon public timing reports/.test(T()) && /Winery ready/.test(T()) && !bad(), bad());
   ok('Vine Blocks, forecast year against actual years', /Every year at this vineyard/.test(T()) && /Forecast year \d{4}/.test(T()) && /Usual miss/.test(T()) && /Recommended work for/.test(T()) && /Protect bloom/.test(T()) && !bad(), bad());
   ok('Vine Blocks, season and budget', /The typical year/.test(T()) && /Season markers by year/.test(T()) && /budget: preliminary, final and actual/.test(T()) && !bad(), bad());

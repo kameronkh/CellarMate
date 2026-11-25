@@ -104,5 +104,5 @@
 
   window.cmUnitCosts = cmUnitCosts; window.cmLotCosts = cmLotCosts; window.cmFermentersOf = cmFermentersOf;
   window.CM_MODULES = window.CM_MODULES || {};
-  window.CM_MODULES.cost = { label: 'Costs', Component: CmLotCost, order: 76 };
+  window.CM_MODULES.lotcost = { label: 'Cost per lot', Component: CmLotCost, order: 65 };
 })();
