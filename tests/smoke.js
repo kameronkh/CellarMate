@@ -23,6 +23,7 @@ window.cmSmoke = async function(opts) {
 
   /* 1b. lots from the database (built-in data retired) */
   ok('built-in lot list is empty', typeof initialLots !== 'undefined' && initialLots.length === 0);
+  for (let i = 0; i < 60 && !(CM_LOTS.ready && CM_LOTS.count >= 490); i++) await new Promise(function(r) { setTimeout(r, 500); }); /* give the lots time to load on a cold start */
   ok('lots loaded from database', CM_LOTS.ready && CM_LOTS.count >= 490, CM_LOTS.count);
   ok('no lot sync errors', !CM_LOTS.err, CM_LOTS.err);
   ok('lot sync helpers present', typeof cmLotsSync === 'function' && typeof cmLoadDbLots === 'function');
