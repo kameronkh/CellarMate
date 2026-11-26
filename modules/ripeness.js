@@ -53,7 +53,7 @@
 
   async function forecast(site) {
     var u = 'https://api.open-meteo.com/v1/forecast?latitude=' + site.lat + '&longitude=' + site.lon + '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=America%2FLos_Angeles&past_days=5&forecast_days=10';
-    var r = await fetch(u); var j = await r.json(); if (!r.ok || !j.daily) throw new Error('Forecast: ' + (j.reason || r.status));
+    var r = await fetch(u, window.cmWxOpts ? window.cmWxOpts() : {}); var j = await r.json(); if (!r.ok || !j.daily) throw new Error('Forecast: ' + (j.reason || r.status));
     var D = j.daily; return D.time.map(function (t, i) { return { date: t, tmax: D.temperature_2m_max[i], tmin: D.temperature_2m_min[i], p: D.precipitation_sum[i], pp: D.precipitation_probability_max ? D.precipitation_probability_max[i] : null }; });
   }
   function merge(arch, fc) { var have = {}; arch.forEach(function (d) { have[d.date] = 1; }); return arch.concat(fc.filter(function (d) { return !have[d.date]; })).sort(function (a, b) { return a.date < b.date ? -1 : 1; }); }

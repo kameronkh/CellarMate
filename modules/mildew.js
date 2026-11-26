@@ -71,7 +71,7 @@
     if (start > end || site.lat == null) return {};
     var u = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + site.lat + '&longitude=' + site.lon + '&start_date=' + start + '&end_date=' + end +
       '&hourly=temperature_2m&temperature_unit=fahrenheit&timezone=America%2FLos_Angeles';
-    var r = await fetch(u); var j = await r.json(); if (!r.ok || !j.hourly) throw new Error('Weather service: ' + (j.reason || r.status));
+    var r = await fetch(u, window.cmWxOpts ? window.cmWxOpts(30000) : {}); var j = await r.json(); if (!r.ok || !j.hourly) throw new Error('Weather service: ' + (j.reason || r.status));
     var per = cmGtFromHourly(j.hourly.time, j.hourly.temperature_2m);
     var rows = Object.keys(per).filter(function (d) { return per[d].n >= 20; }).map(function (d) { return { vineyard_id: site.id, organization_id: site.organization_id, date: d, gt_hours: per[d].gt, hot_hours: per[d].hot }; });
     if (site.organization_id) for (var i = 0; i < rows.length; i += 500) { var up = await db().from('weather_daily').upsert(rows.slice(i, i + 500), { onConflict: 'vineyard_id,date' }); if (up.error) break; }

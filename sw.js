@@ -1,6 +1,6 @@
 /* CellarMate service worker: keeps the app itself available with no connection.
    Cellar data is saved separately by the app (IndexedDB), not here. */
-const CM_SW_CACHE = 'cellarmate-shell-v35';
+const CM_SW_CACHE = 'cellarmate-shell-v36';
 const CM_SHELL = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png', '/modules/ferment.js', '/modules/nav.js', '/modules/materials.js', '/modules/barrelmap.js', '/modules/barrelmoves.js', '/modules/lotcost.js', '/modules/barrellabels.js', '/modules/topping.js', '/modules/lab.js', '/modules/labdocs.js', '/modules/today.js', '/modules/files.js', '/modules/vintages.js', '/modules/vineyard.js', '/modules/mildew.js', '/modules/ripeness.js', '/modules/vinerecords.js', '/modules/plan.js', '/modules/owner.js', '/modules/certs.js', '/modules/fieldwork.js', '/modules/forecast.js', '/modules/sprayplan.js', '/modules/season.js', '/modules/equipment.js', '/modules/vitlib.js', '/modules/outlook.js', '/modules/winehelp.js', '/modules/wineinv.js', '/modules/costs.js', '/modules/crop.js'];
 const CM_LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
@@ -11,19 +11,42 @@ const CM_LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'
 ];
 const CM_CDN = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'unpkg.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
+/* Weather: keep a saved copy of every Open-Meteo answer so screens open at once and still work when the service is slow or offline. */
+const CM_WX_CACHE = 'cellarmate-weather';
+const CM_WX = ['api.open-meteo.com', 'archive-api.open-meteo.com', 'ensemble-api.open-meteo.com', 'seasonal-api.open-meteo.com'];
+const CM_WX_FRESH = 30 * 60 * 1000, CM_WX_STALE = 6 * 60 * 60 * 1000, CM_WX_WAIT = 8000;
+async function cmWxLoad(req, cache) {
+  const ctl = new AbortController(), t = setTimeout(function() { ctl.abort(); }, CM_WX_WAIT);
+  try {
+    const res = await fetch(req, {signal: ctl.signal});
+    if (res && res.ok) {
+      const h = new Headers(res.headers); h.set('x-cm-at', String(Date.now()));
+      await cache.put(req, new Response(await res.clone().blob(), {status: res.status, statusText: res.statusText, headers: h}));
+    }
+    return res;
+  } finally { clearTimeout(t); }
+}
+async function cmWeather(e, req) {
+  const cache = await caches.open(CM_WX_CACHE), hit = await cache.match(req);
+  const age = hit ? Date.now() - Number(hit.headers.get('x-cm-at') || 0) : Infinity;
+  if (hit && age < CM_WX_FRESH) return hit;
+  if (hit && age < CM_WX_STALE) { e.waitUntil(cmWxLoad(req, cache).catch(function() {})); return hit; }
+  try { return await cmWxLoad(req, cache); } catch (err) { if (hit) return hit; throw err; }
+}
 self.addEventListener('install', function(e) {
   e.waitUntil(caches.open(CM_SW_CACHE).then(function(c) {
     return Promise.all(CM_SHELL.concat(CM_LIBS).map(function(u) { return c.add(u).catch(function() {}); }));
   }).then(function() { return self.skipWaiting(); }));
 });
 self.addEventListener('activate', function(e) {
-  e.waitUntil(caches.keys().then(function(ks) { return Promise.all(ks.filter(function(k) { return k !== CM_SW_CACHE; }).map(function(k) { return caches.delete(k); })); }).then(function() { return self.clients.claim(); }));
+  e.waitUntil(caches.keys().then(function(ks) { return Promise.all(ks.filter(function(k) { return k !== CM_SW_CACHE && k !== CM_WX_CACHE; }).map(function(k) { return caches.delete(k); })); }).then(function() { return self.clients.claim(); }));
 });
 self.addEventListener('fetch', function(e) {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.hostname.indexOf('supabase.co') !== -1) return;
+  if (CM_WX.indexOf(url.hostname) !== -1) { e.respondWith(cmWeather(e, req)); return; }
   if (req.mode === 'navigate' || url.origin === self.location.origin) {
     const key = req.mode === 'navigate' ? '/index.html' : req;
     e.respondWith(fetch(req).then(function(res) {

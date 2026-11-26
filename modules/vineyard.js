@@ -148,17 +148,19 @@
     }
     return out.map(function (d) { return { date: d.date, tmax: num(d.tmax_f), tmin: num(d.tmin_f), p: num(d.precip_in), gt: num(d.gt_hours), hot: num(d.hot_hours) }; });
   }
+  /* every weather request gives up after a while instead of leaving the page loading */
+  function wxOpts(ms) { return window.AbortSignal && AbortSignal.timeout ? { signal: AbortSignal.timeout(ms || 12000) } : {}; }
   async function fetchArchive(lat, lon, start, end) {
     var u = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon + '&start_date=' + start + '&end_date=' + end +
       '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=America%2FLos_Angeles';
-    var r = await fetch(u); var j = await r.json(); if (!r.ok || !j.daily) throw new Error('Weather service: ' + (j.reason || r.status));
+    var r = await fetch(u, wxOpts()); var j = await r.json(); if (!r.ok || !j.daily) throw new Error('Weather service: ' + (j.reason || r.status));
     var D = j.daily; return D.time.map(function (t, i) { return { date: t, tmax: D.temperature_2m_max[i], tmin: D.temperature_2m_min[i], p: D.precipitation_sum[i] }; }).filter(function (d) { return d.tmax != null; });
   }
   async function cmWeatherFor(site) {
     var have = await loadCached(site.id);
     var end = addDays(iso(new Date()), -3), last = have.length ? have[have.length - 1].date : null, start = last ? addDays(last, 1) : START;
     if (start > end || site.lat == null) return { days: have, added: 0 };
-    var fresh = await fetchArchive(site.lat, site.lon, start, end);
+    var fresh; try { fresh = await fetchArchive(site.lat, site.lon, start, end); } catch (e) { return { days: have, added: 0, stale: true, error: e.message }; } /* slow service: show the saved weather */
     for (var i = 0; i < fresh.length; i += 1000) {
       var rows = fresh.slice(i, i + 1000).map(function (d) { return { vineyard_id: site.id, organization_id: site.organization_id, date: d.date, tmax_f: d.tmax, tmin_f: d.tmin, precip_in: d.p }; });
       var up = await db().from('weather_daily').upsert(rows, { onConflict: 'vineyard_id,date' }); if (up.error) break; /* read-only users still see fresh data */
@@ -391,7 +393,7 @@
   window.cmCropCheck = cmCropCheck;
   window.cmSprayCheck = cmSprayCheck;
   window.cmVineyardHeat = heatAtPick;
-  window.cmWeatherFor = cmWeatherFor;
+  window.cmWeatherFor = cmWeatherFor; window.cmWxOpts = wxOpts;
   window.cmNormalDaily = normalDaily;
   window.CmVineyard = CmVineyard;
 })();

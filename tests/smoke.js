@@ -594,6 +594,21 @@ window.cmSmoke = async function(opts) {
     ok('pdf: wide reports print landscape, narrow ones portrait', pdfW.internal.pageSize.getWidth() > pdfW.internal.pageSize.getHeight() && pdfN.internal.pageSize.getWidth() < pdfN.internal.pageSize.getHeight());
     ok('pdf: long reports run to several pages, each stamped page x of y', pdfW.internal.getNumberOfPages() >= 2 && /page 2 of /.test(String(pdfW.output()).slice(0, 400000)) === true);
   }
+  /* 1ak. round 15: weather requests time out, fall back to saved weather, and are cached by the service worker */
+  {
+    ok('weather: shared timeout helper loaded', typeof window.cmWxOpts === 'function' && !!window.cmWxOpts().signal);
+    const realFetch = window.fetch; let tried = 0;
+    window.fetch = function(u) { if (String(u).indexOf('archive-api.open-meteo.com') !== -1) { tried++; return Promise.reject(new Error('simulated slow weather service')); } return realFetch.apply(this, arguments); };
+    let wres = null, werr = '';
+    try { wres = await cmWeatherFor({id: -1, lat: 45.3, lon: -123.0, organization_id: null}); } catch (e) { werr = e.message; }
+    window.fetch = realFetch;
+    ok('weather: a failed or slow archive request shows saved weather instead of an error', tried >= 1 && !werr && wres && wres.stale === true && Array.isArray(wres.days), werr || JSON.stringify(wres));
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      const u = 'https://api.open-meteo.com/v1/forecast?latitude=45.3&longitude=-123.0&daily=temperature_2m_max&forecast_days=1&timezone=America%2FLos_Angeles';
+      const a = await fetch(u); await a.json(); const t1 = performance.now(); const b = await fetch(u); await b.json(); const dt = performance.now() - t1;
+      ok('weather: a repeat request comes straight from the saved copy', !!b.headers.get('x-cm-at') && dt < 400, Math.round(dt) + ' ms');
+    } else { ok('weather: saved-copy check skipped (service worker not controlling this page yet)', true); }
+  }
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
