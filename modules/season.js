@@ -27,6 +27,9 @@
   ];
   function cmTypicalCalendar() { return CAL; }
   function num(x) { var n = Number(x); return x === null || x === undefined || x === '' || isNaN(n) ? null : n; }
+  /* a logged E-L stage only counts as a milestone while it is near that stage: a late visit at E-L 31 must not stand in for bloom */
+  function cmStageKey(el) { if (el >= 4 && el <= 12) return 'budbreak'; if (el >= 19 && el <= 27) return 'bloom'; if (el >= 35 && el <= 37) return 'veraison'; return null; }
+  window.cmStageKey = cmStageKey;
   function r1(x, d) { return x == null ? '' : Number(x).toFixed(d == null ? 1 : d); }
   function md(s) { return s ? +String(s).slice(5, 7) + '/' + +String(s).slice(8, 10) : ''; }
   function doy(s) { var d = new Date(s + 'T12:00:00Z'), j = new Date(d.getUTCFullYear() + '-01-01T12:00:00Z'); return Math.round((d - j) / 864e5); }
@@ -44,7 +47,7 @@
     (X.harvests || []).forEach(function (h) { if (h.date) { put(String(h.date).slice(0, 4), 'firstPick', h.date, true); put(String(h.date).slice(0, 4), 'lastPick', h.date, false); } });
     (X.obs || []).forEach(function (o) {
       if (o.kind !== 'growth stage' || o.el_stage == null) return; var y = String(o.observed_on).slice(0, 4);
-      if (o.el_stage >= 4) put(y, 'budbreak', o.observed_on, true); if (o.el_stage >= 23) put(y, 'bloom', o.observed_on, true); if (o.el_stage >= 35) put(y, 'veraison', o.observed_on, true);
+      var sk = cmStageKey(o.el_stage); if (sk) put(y, sk, o.observed_on, true);
     });
     var rows = Object.keys(years).sort().map(function (y) { return years[y]; });
     var typical = {};

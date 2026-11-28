@@ -1,6 +1,6 @@
 /* CellarMate service worker: keeps the app itself available with no connection.
    Cellar data is saved separately by the app (IndexedDB), not here. */
-const CM_SW_CACHE = 'cellarmate-shell-v36';
+const CM_SW_CACHE = 'cellarmate-shell-v37';
 const CM_SHELL = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png', '/modules/ferment.js', '/modules/nav.js', '/modules/materials.js', '/modules/barrelmap.js', '/modules/barrelmoves.js', '/modules/lotcost.js', '/modules/barrellabels.js', '/modules/topping.js', '/modules/lab.js', '/modules/labdocs.js', '/modules/today.js', '/modules/files.js', '/modules/vintages.js', '/modules/vineyard.js', '/modules/mildew.js', '/modules/ripeness.js', '/modules/vinerecords.js', '/modules/plan.js', '/modules/owner.js', '/modules/certs.js', '/modules/fieldwork.js', '/modules/forecast.js', '/modules/sprayplan.js', '/modules/season.js', '/modules/equipment.js', '/modules/vitlib.js', '/modules/outlook.js', '/modules/winehelp.js', '/modules/wineinv.js', '/modules/costs.js', '/modules/crop.js'];
 const CM_LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',

@@ -610,6 +610,9 @@ window.cmSmoke = async function(opts) {
       ok('weather: a repeat request comes straight from the saved copy', !!b.headers.get('x-cm-at') && dt < 400, Math.round(dt) + ' ms');
     } else { ok('weather: saved-copy check skipped (service worker not controlling this page yet)', true); }
   }
+  /* 1al. round 16: growth stages only count as a milestone near that stage */
+  ok('stages: bloom only from E-L 19 to 27', cmStageKey(19) === 'bloom' && cmStageKey(23) === 'bloom' && cmStageKey(31) === null && cmStageKey(33) === null);
+  ok('stages: budbreak and veraison windows', cmStageKey(4) === 'budbreak' && cmStageKey(15) === null && cmStageKey(35) === 'veraison' && cmStageKey(38) === null);
   /* 1z. winery troubleshooter, AI context and wine inventory */
   ok('troubleshooter and inventory modules loaded', !!(window.CmWineHelp && window.CmWineInventory && window.cmDiagnose && window.cmMolecularSO2 && window.cmInvRows && CM_MODULES.help && CM_MODULES.inv));
   ok('molecular SO2 from free SO2 and pH', Math.abs(cmMolecularSO2(30, 3.3) - 0.94) < 0.02 && Math.abs(cmMolecularSO2(25, 3.85) - 0.23) < 0.02);
