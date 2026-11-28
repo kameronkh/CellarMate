@@ -660,7 +660,7 @@ window.cmSmoke = async function(opts) {
   const T = function() { return document.body.innerText; };
   await vtab('Weather and harvest', /Estate blocks: tons per acre/, 25);
   for (let i = 0; i < 70 && /Loading weather and block history/.test(T()); i++) await wait(1000);
-  ok('Vine Blocks, weather and harvest', /Heat units and rain/.test(T()) && /Estate blocks: tons per acre/.test(T()) && /Ripeness samples/.test(T()) && /Harvest watch: Estate/.test(T()) && /Crop estimates and pick window/.test(T()) && !bad(), bad());
+  ok('Vine Blocks, weather and harvest', /Heat units and rain/.test(T()) && /Estate blocks: tons per acre/.test(T()) && /Ripeness samples/.test(T()) && /Harvest watch: Estate/.test(T()) && /Crop estimates and pick window/.test(T()) && !bad(), bad() || ['Heat units and rain', 'Estate blocks: tons per acre', 'Ripeness samples', 'Harvest watch: Estate', 'Crop estimates and pick window'].filter(function(x) { return T().indexOf(x) < 0; }).join(', ') + (/Loading weather and block history/.test(T()) ? ' (still loading)' : ''));
   await vtab('Forecast and sprays', /Next 16 days|did not answer/, 40);
   for (let i = 0; i < 40; i++) { if (/index started|index never started/.test(T()) && /Product use and/.test(T())) break; await wait(1000); }
   const fcDown = /forecast service \(Open-Meteo\) did not answer/.test(T());
